@@ -14,6 +14,7 @@ export function JourneyView({
   reconnect = 0,
   targetSeconds,
   restStop,
+  upcomingRestStop,
   motionAllowed,
 }: {
   journey?: Journey;
@@ -25,6 +26,7 @@ export function JourneyView({
   reconnect?: number;
   targetSeconds?: number;
   restStop?: { index: number; count: number } | null;
+  upcomingRestStop?: { index: number; count: number; remainingSeconds: number } | null;
   motionAllowed?: boolean;
 }) {
   const exploration = journeyExplorationFraction(
@@ -45,6 +47,7 @@ export function JourneyView({
           exploration={exploration}
           coast={coast}
           restStop={restStop}
+          upcomingRestStop={upcomingRestStop}
           motionAllowed={motionAllowed}
         />
       ) : (

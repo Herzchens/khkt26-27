@@ -4,13 +4,15 @@ import {
   completeSceneStopMotion,
   SCENE_ARRIVAL_STATION_X,
   SCENE_REST_STATION_X,
+  SCENE_REST_DEPARTURE_END_X,
   SCENE_TRAIN_ARRIVAL_X,
   sceneTrainScale,
   sceneTrainLayout,
   sceneViewBoxForZoom,
-  sceneRestStopForPhase,
+  sceneRestStationPosition,
   transitionSceneStop,
   type SceneRestStop,
+  type SceneUpcomingRestStop,
   type SceneStopPhase,
 } from "./sceneMotion";
 import "./fog.css";
@@ -35,7 +37,7 @@ function SceneStation({
   return (
     <g
       className={kind === "rest" ? "travel-rest-stop" : "travel-arrival-stop"}
-      transform={`translate(${centerX} 0)`}
+      transform={`translate(${centerX} 18)`}
       data-station-x={centerX}
       role="img"
       aria-label={accessibleLabel}
@@ -71,6 +73,7 @@ export function TopDownScene({
   exploration = 0,
   coast = false,
   restStop = null,
+  upcomingRestStop = null,
   arrival = null,
   motionAllowed = true,
 }: {
@@ -81,6 +84,7 @@ export function TopDownScene({
   exploration?: number;
   coast?: boolean;
   restStop?: SceneRestStop | null;
+  upcomingRestStop?: SceneUpcomingRestStop | null;
   arrival?: SceneArrival | null;
   motionAllowed?: boolean;
 }) {
@@ -133,8 +137,8 @@ export function TopDownScene({
       previousRestStop.current = { index: restIndex, count: restCount };
     else if (previousIndex !== null && !sceneMotionAllowed) previousRestStop.current = null;
   }, [restIndex, restCount, sceneMotionAllowed]);
-  const engineX = 450 + carriages.length * 32;
-  const { travelX, travelShift, restShift, arrivalShift } = sceneTrainLayout(engineX, carriages.length);
+  const engineX = SCENE_REST_STATION_X;
+  const { travelX, travelShift, restShift, arrivalShift } = sceneTrainLayout(engineX);
   const viewBox = sceneViewBoxForZoom(zoom, Boolean(arrival));
   const viewBoxLeft = Number(viewBox.split(" ", 1)[0]);
   const trainScale = sceneTrainScale(
@@ -145,21 +149,27 @@ export function TopDownScene({
   const chosen = carriages.find((car) => car.id === selected) ?? carriages[0];
   const moving = !arrival && running && sceneMotionAllowed;
   const arrivalLabel = arrival?.label.trim() || (arrival?.completed ? "Đã đến ga cuối." : "Chuyến đã dừng.");
+  const restStation = sceneRestStationPosition(
+    restStop,
+    upcomingRestStop,
+    previousRestStop.current,
+    stopPhase,
+  );
   const sceneStatus = arrival
     ? arrivalLabel
-    : stopPhase === "arriving"
-    ? "tàu đang vào trạm nghỉ"
+    : restStation.phase === "approaching"
+    ? "trạm nghỉ đang đến gần"
     : stopPhase === "parked" && restStop
       ? `tàu đang dừng tại trạm nghỉ ${restStop.index} / ${restStop.count}`
       : stopPhase === "departing"
-        ? "tàu đang rời trạm nghỉ"
+        ? "trạm nghỉ đang rời đi"
         : moving
           ? "cảnh vật đang trôi quanh tàu"
           : "cảnh vật đang dừng";
-  const visibleRestStop = arrival ? null : sceneRestStopForPhase(restStop, previousRestStop.current, stopPhase);
+  const visibleRestStop = arrival ? null : restStation.stop;
   const renderedStopPhase = arrival ? "arrived" : stopPhase;
   const finishStopMotion = (event: AnimationEvent<SVGGElement>) => {
-    if (event.animationName === "travel-stop-arrive" || event.animationName === "travel-stop-depart") {
+    if (event.animationName === "travel-stop-depart") {
       setStopPhase((phase) => completeSceneStopMotion(phase));
       if (event.animationName === "travel-stop-depart" && restIndex === null)
         previousRestStop.current = null;
@@ -274,14 +284,26 @@ export function TopDownScene({
         </g>
         <path d="M0 194 H900 M0 226 H900" stroke="#5b6260" strokeWidth="7" />
         <path d="M0 193 H900 M0 227 H900" stroke="#eee1bd" strokeWidth="2.5" />
-        {visibleRestStop && (
-          <SceneStation
-            centerX={SCENE_REST_STATION_X}
-            kind="rest"
-            title="TRẠM NGHỈ"
-            detail={`${visibleRestStop.index}/${visibleRestStop.count}`}
-            accessibleLabel={`Trạm nghỉ ${visibleRestStop.index} / ${visibleRestStop.count}`}
-          />
+        {visibleRestStop && restStation.x !== null && (
+          <g
+            className="travel-rest-stop-position"
+            data-stop-phase={restStation.phase}
+            data-station-x={restStation.x}
+            data-rest-index={visibleRestStop.index}
+            style={{
+              "--station-shift": `${restStation.x - SCENE_REST_STATION_X}px`,
+              "--station-departure-shift": `${SCENE_REST_DEPARTURE_END_X - SCENE_REST_STATION_X}px`,
+            } as CSSProperties}
+            onAnimationEnd={finishStopMotion}
+          >
+            <SceneStation
+              centerX={SCENE_REST_STATION_X}
+              kind="rest"
+              title="TRẠM NGHỈ"
+              detail={`${visibleRestStop.index}/${visibleRestStop.count}`}
+              accessibleLabel={`Trạm nghỉ ${visibleRestStop.index} / ${visibleRestStop.count}`}
+            />
+          </g>
         )}
         {arrival && (
           <SceneStation
@@ -301,7 +323,6 @@ export function TopDownScene({
               "--rest-shift": `${restShift}px`,
               "--arrival-shift": `${arrivalShift}px`,
             } as CSSProperties}
-            onAnimationEnd={finishStopMotion}
           >
           <g
             className="travel-train"
@@ -387,10 +408,10 @@ export function TopDownScene({
             ? "☁ Toa đang chờ bạn quay lại"
             : exploration >= 1
               ? "Đã khám phá toàn tuyến"
-              : stopPhase === "arriving"
-                ? "Tàu đang vào trạm nghỉ."
+                : restStation.phase === "approaching"
+                ? "Trạm nghỉ đang đến gần."
                 : stopPhase === "departing"
-                  ? "Tàu đang rời trạm nghỉ."
+                  ? "Trạm nghỉ đang rời đi."
                   : restStop
                     ? `Tàu nghỉ tại trạm ${restStop.index} / ${restStop.count}.`
               : running

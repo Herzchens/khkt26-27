@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as focus from '../src/adventure/focus.ts';
+import { isDeviceClockBehind } from '../src/adventure/focus.ts';
 
 const { tick, depart, returnFromBackground, leaveFocusView, restore, focused, elapsedSeconds, sessionEndAt } = focus;
 const trip = (target = 600) => ({
@@ -144,4 +145,28 @@ test('clock rollback does not create negative time or clear an active departure'
   assert.equal(back.distractions, 1);
   assert.equal(focused(back), 10);
   assert.equal(elapsedSeconds(back, 5000), 10);
+});
+
+test('a current clock sample clears the stale warning after a normal checkpoint', () => {
+  const checkpointed = tick(trip(), 5005);
+  const staleRenderSample = 5000;
+  const clockSamples = [5006, 5004, 5006];
+  let clockReads = 0;
+  const readClock = () => clockSamples[clockReads++];
+
+  assert.equal(staleRenderSample < checkpointed.lastAt, true);
+  assert.equal(isDeviceClockBehind(checkpointed.lastAt, readClock), false);
+  assert.equal(clockReads, 1);
+  assert.equal(isDeviceClockBehind(checkpointed.lastAt, readClock), true);
+  assert.equal(clockReads, 2);
+  assert.equal(isDeviceClockBehind(checkpointed.lastAt, readClock), false);
+  assert.equal(clockReads, 3);
+});
+
+test('normal focus return timestamps are not mistaken for a clock rollback', () => {
+  const away = depart(trip(), 5000);
+  const returned = returnFromBackground(away, 10005);
+
+  assert.equal(returned.lastAt, 10005);
+  assert.equal(isDeviceClockBehind(returned.lastAt, () => 10006), false);
 });

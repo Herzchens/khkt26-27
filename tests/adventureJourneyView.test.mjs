@@ -95,9 +95,15 @@ test("journey view uses the map and active 2D scene without exposing a 3D switch
     ...props,
     focusState: "focus",
   }));
+  const upcomingRestMarkup = renderToStaticMarkup(React.createElement(JourneyView, {
+    ...props,
+    focusState: "focus",
+    upcomingRestStop: { index: 1, count: 2, remainingSeconds: 12 },
+  }));
 
   assert.match(mapMarkup, /Bản đồ tiến trình từ trên xuống/u);
   assert.match(focusMarkup, /Cảnh tàu 2D nhìn thẳng từ trên xuống/u);
+  assert.match(upcomingRestMarkup, /data-station-x="1050"/u);
   for (const markup of [mapMarkup, focusMarkup]) {
     assert.doesNotMatch(markup, /camera-switch|scene-3d|train-canvas|Cảnh 3D/u);
   }

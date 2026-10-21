@@ -1,22 +1,22 @@
-export type SceneStopPhase = "travelling" | "arriving" | "parked" | "departing";
+export type SceneStopPhase = "travelling" | "parked" | "departing";
+export type SceneStationPhase = SceneStopPhase | "approaching";
 export type SceneRestStop = { index: number; count: number };
+export type SceneUpcomingRestStop = SceneRestStop & { remainingSeconds: number };
 
 export const SCENE_REST_STATION_X = 450;
+export const SCENE_REST_APPROACH_SECONDS = 12;
+export const SCENE_REST_APPROACH_START_X = 1050;
+export const SCENE_REST_DEPARTURE_END_X = -150;
 export const SCENE_ARRIVAL_STATION_X = 780;
-export const SCENE_TRAIN_TRAVEL_X = 360;
 export const SCENE_TRAIN_ARRIVAL_X = 635;
 const SCENE_TRAIN_CARRIAGE_STEP = 64;
 
-/** Derive the train translations for the visual travel, rest, and terminal poses. */
-export function sceneTrainLayout(engineX: number, carriageCount: number) {
-  const travelX = Math.max(
-    SCENE_TRAIN_TRAVEL_X,
-    Math.min(SCENE_REST_STATION_X, carriageCount * SCENE_TRAIN_CARRIAGE_STEP + 40),
-  );
+/** Keep the engine centered through ordinary travel and scheduled breaks. */
+export function sceneTrainLayout(engineX: number) {
   return {
-    travelX,
-    travelShift: travelX - engineX,
-    restShift: SCENE_REST_STATION_X - engineX,
+    travelX: engineX,
+    travelShift: 0,
+    restShift: 0,
     arrivalShift: SCENE_TRAIN_ARRIVAL_X - engineX,
   };
 }
@@ -43,7 +43,53 @@ export function sceneViewBoxForZoom(zoom: number, terminal: boolean): string {
   return `${left} ${210 - height / 2} ${width} ${height}`;
 }
 
-/** Keep the last station illustration while the train completes its departure. */
+/** Place an upcoming station just outside the right edge, then center it at break time. */
+export function sceneUpcomingRestStationX(
+  upcoming: Pick<SceneUpcomingRestStop, "remainingSeconds"> | null,
+): number | null {
+  if (!upcoming || !Number.isFinite(upcoming.remainingSeconds)) return null;
+  const remaining = upcoming.remainingSeconds;
+  if (remaining < 0 || remaining > SCENE_REST_APPROACH_SECONDS) return null;
+  const bounded = Math.min(SCENE_REST_APPROACH_SECONDS, remaining);
+  const distance = SCENE_REST_APPROACH_START_X - SCENE_REST_STATION_X;
+  return SCENE_REST_STATION_X + (distance * bounded) / SCENE_REST_APPROACH_SECONDS;
+}
+
+export type SceneRestStationPosition = {
+  stop: SceneRestStop | null;
+  x: number | null;
+  phase: SceneStationPhase;
+};
+
+/** Resolve the one station pose from live break state, countdown, and departure state. */
+export function sceneRestStationPosition(
+  current: SceneRestStop | null,
+  upcoming: SceneUpcomingRestStop | null,
+  previous: SceneRestStop | null,
+  phase: SceneStopPhase,
+): SceneRestStationPosition {
+  if (current) return { stop: current, x: SCENE_REST_STATION_X, phase: "parked" };
+
+  if (phase === "departing") {
+    const stop = previous;
+    return stop
+      ? { stop, x: SCENE_REST_DEPARTURE_END_X, phase: "departing" }
+      : { stop: null, x: null, phase: "travelling" };
+  }
+
+  const upcomingX = sceneUpcomingRestStationX(upcoming);
+  if (upcoming && upcomingX !== null) {
+    return {
+      stop: { index: upcoming.index, count: upcoming.count },
+      x: upcomingX,
+      phase: "approaching",
+    };
+  }
+
+  return { stop: null, x: null, phase: "travelling" };
+}
+
+/** Keep the last station illustration while it completes its leftward departure. */
 export function sceneRestStopForPhase(
   current: SceneRestStop | null,
   previous: SceneRestStop | null,
@@ -52,7 +98,7 @@ export function sceneRestStopForPhase(
   return current ?? (phase === "departing" ? previous : null);
 }
 
-/** Derive the small, visual-only station transition from the scheduled rest key. */
+/** Break entry is already centered by the countdown; only break exit animates. */
 export function transitionSceneStop(
   current: SceneStopPhase,
   previousRestIndex: number | null,
@@ -60,22 +106,15 @@ export function transitionSceneStop(
   motionAllowed: boolean,
 ): SceneStopPhase {
   if (nextRestIndex === null) {
-    if (previousRestIndex !== null)
-      return motionAllowed ? "departing" : "travelling";
+    if (previousRestIndex !== null) return motionAllowed ? "departing" : "travelling";
     if (current === "departing") return motionAllowed ? current : "travelling";
     return "travelling";
   }
 
-  if (previousRestIndex !== nextRestIndex)
-    return motionAllowed ? "arriving" : "parked";
-  if (current === "arriving" && !motionAllowed) return "parked";
-  if (current === "departing") return motionAllowed ? "arriving" : "parked";
-  return current === "travelling" ? "parked" : current;
+  return "parked";
 }
 
-/** Finish a one-shot arrival/departure without changing schedule or trip state. */
+/** Finish the one-shot station departure without changing schedule or trip state. */
 export function completeSceneStopMotion(phase: SceneStopPhase): SceneStopPhase {
-  if (phase === "arriving") return "parked";
-  if (phase === "departing") return "travelling";
-  return phase;
+  return phase === "departing" ? "travelling" : phase;
 }

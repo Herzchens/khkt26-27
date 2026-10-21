@@ -34,23 +34,39 @@ export function mapFogLayerOpacity(progress: number): number {
   return Math.min(1, Math.max(0, (1 - current) / 0.02));
 }
 
-/** Stable, bounded points for a softly irregular opening around a fog node. */
+/** Stable, uneven points for broad, cloud-shaped openings around fog nodes. */
 export function mapFogBlobPoints(seed: string): { x: number; y: number }[] {
   let hash = 2166136261;
   for (let i = 0; i < seed.length; i++) {
     hash = Math.imul(hash ^ seed.charCodeAt(i), 16777619);
   }
   const phase = ((hash >>> 0) / 0xffffffff) * Math.PI * 2;
-  const count = 16;
+  const count = 22;
   return Array.from({ length: count }, (_, i) => {
     const angle = (Math.PI * 2 * i) / count;
     const radius =
       1 +
-      0.075 * Math.sin(angle * 3 + phase) +
-      0.045 * Math.cos(angle * 5 - phase * 1.3) +
-      0.025 * Math.sin(angle * 7 + phase * 0.7);
+      0.14 * Math.sin(angle * 2 + phase) +
+      0.09 * Math.cos(angle * 3 - phase * 1.3) +
+      0.055 * Math.sin(angle * 5 + phase * 0.7) +
+      0.03 * Math.cos(angle * 7 - phase * 0.45) +
+      0.02 * Math.sin(angle * 11 + phase * 1.1);
     return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
   });
+}
+
+/** Overlapping, rotated apertures merge into irregular fog banks instead of isolated circles. */
+export function mapFogApertureTransform(cloud: MapFogNode, opening: number): string {
+  const boundedOpening = Number.isFinite(opening)
+    ? Math.max(0, Math.min(1, opening))
+    : 0;
+  let hash = 2166136261;
+  for (let i = 0; i < cloud.id.length; i++) {
+    hash = Math.imul(hash ^ cloud.id.charCodeAt(i), 16777619);
+  }
+  const angle = cloud.angle + ((((hash >>> 0) % 41) - 20) * 0.8);
+  const number = (value: number) => value.toFixed(2);
+  return `translate(${number(cloud.x)} ${number(cloud.y)}) rotate(${number(angle)}) scale(${number(178 * cloud.size * boundedOpening)} ${number(120 * cloud.size * boundedOpening)})`;
 }
 
 export function mapFogBlobPath(seed: string): string {

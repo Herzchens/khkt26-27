@@ -38,6 +38,11 @@ export type ActiveTrip = {
   deviceCategory?: DeviceCategory;
 };
 
+/** Compare the current wall clock with the active trip's last accepted timestamp. */
+export function isDeviceClockBehind(lastAt: number, readClock: () => number = Date.now): boolean {
+  return readClock() < lastAt;
+}
+
 export function focused(s: ActiveTrip): number {
   return s.segments.reduce(
     (sum, segment) =>

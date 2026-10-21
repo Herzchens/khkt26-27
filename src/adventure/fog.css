@@ -8,49 +8,61 @@
   pointer-events: none;
 }
 
+.map-fog-layer {
+  --fog-cover-start: #0d3d52;
+  --fog-cover-mid: #195d73;
+  --fog-cover-end: #092f45;
+  --fog-bank-blue: #72c5eb;
+  --fog-bank-highlight: #e6f7ff;
+}
+
+[data-theme="dark"] .map-fog-layer {
+  --fog-cover-start: #0b344b;
+  --fog-cover-mid: #154f67;
+  --fog-cover-end: #07283c;
+  --fog-bank-blue: #75c5e9;
+  --fog-bank-highlight: #e9f8ff;
+}
+
+[data-theme="light"] .map-fog-layer {
+  --fog-cover-start: #10465d;
+  --fog-cover-mid: #21687d;
+  --fog-cover-end: #0c3b51;
+  --fog-bank-blue: #7ac9ec;
+  --fog-bank-highlight: #e9faff;
+}
+
 .map-fog-cover {
-  opacity: 1;
+  opacity: .94;
+}
+
+.map-fog-cloud-density {
+  opacity: .76;
+}
+
+.map-fog-eddy-density {
+  opacity: .44;
 }
 
 .map-fog-flow {
-  transform-box: fill-box;
+  transform-box: view-box;
   transform-origin: center;
 }
 
-.map-fog-flow > path {
-  fill: none;
-  stroke: #f7fcfc;
-  stroke-width: 82px;
-  stroke-linecap: round;
-  opacity: .2;
-}
-
-.map-fog-flow--slow > path:nth-child(2) {
-  stroke: #a8c1ca;
-  stroke-width: 104px;
-  opacity: .13;
-}
-
-.map-fog-flow--quick > path {
-  stroke: #fff;
-  stroke-width: 38px;
-  opacity: .24;
-}
-
 .map-fog-flow--slow.is-active {
-  animation: map-fog-drift-slow 74s ease-in-out infinite alternate;
+  animation: map-fog-drift-slow 86s ease-in-out infinite alternate;
 }
 
 .map-fog-flow--quick.is-active {
-  animation: map-fog-drift-quick 51s ease-in-out infinite alternate;
+  animation: map-fog-drift-quick 63s ease-in-out infinite alternate;
 }
 
 @keyframes map-fog-drift-slow {
-  to { transform: translate(30px, -15px); }
+  to { transform: translate(30px, -18px) scale(1.015); }
 }
 
 @keyframes map-fog-drift-quick {
-  to { transform: translate(-23px, 12px); }
+  to { transform: translate(-20px, 13px) scale(1.02); }
 }
 
 .cartoon-cloud-shape {

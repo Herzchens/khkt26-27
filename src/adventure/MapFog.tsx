@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   mapFogApertureScale,
+  mapFogApertureTransform,
   mapFogBlobPath,
   mapFogLayerOpacity,
   mapFogMotionShouldRun,
@@ -80,33 +81,103 @@ export function MapFog({
       style={{ opacity: fogOpacity }}
     >
       <defs>
-        <linearGradient id={`${id}-mist-fill`} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#d7e5e8" />
-          <stop offset="36%" stopColor="#edf1ef" />
-          <stop offset="70%" stopColor="#d4e1e8" />
-          <stop offset="100%" stopColor="#e8ecdf" />
+        <linearGradient id={`${id}-mist-fill`} x1="0" y1="0" x2="1" y2="0.7">
+          <stop offset="0%" stopColor="var(--fog-cover-start)" stopOpacity=".82" />
+          <stop offset="30%" stopColor="var(--fog-cover-mid)" stopOpacity=".74" />
+          <stop offset="68%" stopColor="var(--fog-cover-start)" stopOpacity=".82" />
+          <stop offset="100%" stopColor="var(--fog-cover-end)" stopOpacity=".88" />
         </linearGradient>
-        <radialGradient
-          id={`${id}-aperture-feather`}
-          cx="50%"
-          cy="50%"
-          r="50%"
-        >
+        <radialGradient id={`${id}-aperture-feather`} cx="50%" cy="50%" r="50%">
           <stop offset="0%" stopColor="#000" stopOpacity="1" />
-          <stop offset="38%" stopColor="#000" stopOpacity=".97" />
-          <stop offset="72%" stopColor="#000" stopOpacity=".66" />
+          <stop offset="38%" stopColor="#000" stopOpacity=".96" />
+          <stop offset="74%" stopColor="#000" stopOpacity=".6" />
           <stop offset="100%" stopColor="#000" stopOpacity="0" />
         </radialGradient>
         <filter
-          id={`${id}-mist-blur`}
-          x="-0.03"
-          y="-0.35"
-          width="1.06"
-          height="1.7"
-          filterUnits="objectBoundingBox"
+          id={`${id}-cloud-density`}
+          x="0"
+          y="0"
+          width="1100"
+          height="650"
+          filterUnits="userSpaceOnUse"
+          primitiveUnits="userSpaceOnUse"
           colorInterpolationFilters="sRGB"
         >
-          <feGaussianBlur stdDeviation="12 8" />
+          <feTurbulence
+            type="fractalNoise"
+            baseFrequency=".004 .006"
+            numOctaves={3}
+            seed={17}
+            result="cloudNoise"
+          />
+          <feColorMatrix
+            in="cloudNoise"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .2126 .7152 .0722 0 0"
+            result="cloudLuminance"
+          />
+          <feComponentTransfer in="cloudLuminance" result="cloudDensity">
+            <feFuncA type="table" tableValues=".025 .045 .10 .23 .48 .76 .96 1" />
+          </feComponentTransfer>
+          <feDisplacementMap
+            in="cloudDensity"
+            in2="cloudNoise"
+            scale={27}
+            xChannelSelector="R"
+            yChannelSelector="G"
+            result="billowedClouds"
+          />
+          <feGaussianBlur in="billowedClouds" stdDeviation="20 15" result="softBanks" />
+          <feFlood floodColor="var(--fog-bank-blue)" floodOpacity=".78" result="blueFlood" />
+          <feComposite in="blueFlood" in2="softBanks" operator="in" result="blueBanks" />
+          <feComponentTransfer in="billowedClouds" result="brightDensity">
+            <feFuncA type="table" tableValues="0 0 .005 .02 .07 .25 .68 1" />
+          </feComponentTransfer>
+          <feFlood floodColor="var(--fog-bank-highlight)" floodOpacity=".88" result="whiteFlood" />
+          <feComposite in="whiteFlood" in2="brightDensity" operator="in" result="sharpWisps" />
+          <feGaussianBlur in="sharpWisps" stdDeviation="9 7" result="wispGlow" />
+          <feMerge>
+            <feMergeNode in="blueBanks" />
+            <feMergeNode in="wispGlow" />
+          </feMerge>
+        </filter>
+        <filter
+          id={`${id}-eddy-density`}
+          x="0"
+          y="0"
+          width="1100"
+          height="650"
+          filterUnits="userSpaceOnUse"
+          primitiveUnits="userSpaceOnUse"
+          colorInterpolationFilters="sRGB"
+        >
+          <feTurbulence
+            type="fractalNoise"
+            baseFrequency=".010 .016"
+            numOctaves="2"
+            seed="43"
+            result="eddyNoise"
+          />
+          <feColorMatrix
+            in="eddyNoise"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .2126 .7152 .0722 0 0"
+            result="eddyLuminance"
+          />
+          <feComponentTransfer in="eddyLuminance" result="eddyDensity">
+            <feFuncA type="table" tableValues="0 0 .005 .025 .12 .46 .92 1" />
+          </feComponentTransfer>
+          <feDisplacementMap
+            in="eddyDensity"
+            in2="eddyNoise"
+            scale={16}
+            xChannelSelector="R"
+            yChannelSelector="G"
+            result="curledEddies"
+          />
+          <feGaussianBlur in="curledEddies" stdDeviation="9 7" result="softEddies" />
+          <feFlood floodColor="var(--fog-bank-highlight)" floodOpacity=".76" result="eddyFlood" />
+          <feComposite in="eddyFlood" in2="softEddies" operator="in" />
         </filter>
         <mask
           id={maskId}
@@ -127,7 +198,7 @@ export function MapFog({
                 key={cloud.id}
                 className="map-fog-aperture"
                 d={mapFogBlobPath(cloud.id)}
-                transform={`translate(${cloud.x} ${cloud.y}) rotate(${cloud.angle}) scale(${106 * cloud.size * opening} ${75 * cloud.size * opening})`}
+                transform={mapFogApertureTransform(cloud, opening)}
                 fill={`url(#${id}-aperture-feather)`}
               />
             );
@@ -146,11 +217,26 @@ export function MapFog({
       />
       <g className="map-fog-wisps" mask={`url(#${maskId})`}>
         <g className={`map-fog-flow map-fog-flow--slow${shouldAnimate ? " is-active" : ""}`}>
-          <path filter={`url(#${id}-mist-blur)`} d="M-95 176 C76 104 171 252 351 195 S637 110 788 164 S1031 235 1190 121" />
-          <path filter={`url(#${id}-mist-blur)`} d="M-112 407 C83 322 230 449 389 392 S677 300 840 372 S1051 424 1190 337" />
+          <rect
+            className="map-fog-cloud-density"
+            x="0"
+            y="0"
+            width="1100"
+            height="650"
+            rx="24"
+            filter={`url(#${id}-cloud-density)`}
+          />
         </g>
         <g className={`map-fog-flow map-fog-flow--quick${shouldAnimate ? " is-active" : ""}`}>
-          <path filter={`url(#${id}-mist-blur)`} d="M-70 285 C105 230 267 307 424 274 S693 222 869 279 S1060 320 1180 242" />
+          <rect
+            className="map-fog-eddy-density"
+            x="0"
+            y="0"
+            width="1100"
+            height="650"
+            rx="24"
+            filter={`url(#${id}-eddy-density)`}
+          />
         </g>
       </g>
     </g>

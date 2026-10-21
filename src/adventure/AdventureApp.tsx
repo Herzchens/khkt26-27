@@ -7,6 +7,7 @@ import { BoardingTicket } from "./BoardingTicket";
 import { StudyNotesInput } from "./StudyNotesInput";
 import { StudyGuideComposer } from "./StudyGuideComposer";
 import { FlipClock } from "./FlipClock";
+import { ThemeToggle } from "./theme";
 import { studyGuideDownload, studyGuideSource, type StudyGuideDraft } from "./studyGuide";
 import { useStudyFullscreen } from "./useStudyFullscreen";
 import { JourneyView } from "./JourneyView";
@@ -28,6 +29,7 @@ import {
   depart,
   elapsedSeconds,
   focused,
+  isDeviceClockBehind,
   leaveFocusView,
   restore,
   returnFromBackground,
@@ -449,6 +451,7 @@ function AdventureWorkspace() {
   const active = saved.active
     ? tick(saved.active, Math.max(now, saved.active.lastAt))
     : null;
+  const deviceClockBehind = active ? isDeviceClockBehind(active.lastAt) : false;
   // Group contributions need server confirmation of membership and the daily cap.
   const displayAt = active ? Math.max(now, active.lastAt) : now;
   const rest = active ? breakStatus(active, displayAt) : null;
@@ -524,7 +527,7 @@ function AdventureWorkspace() {
   function finish() {
     const trip = current.current.active;
     const at = Date.now();
-    if (!trip || at < trip.lastAt) return;
+    if (!trip || isDeviceClockBehind(trip.lastAt, () => at)) return;
     const next = tick(trip, at);
     const s: Session = {
       id: next.id,
@@ -885,6 +888,7 @@ function AdventureWorkspace() {
             </strong>
           </span>
           <div className="top-actions">
+            <ThemeToggle />
             <span className={`connection ${online ? "" : "offline"}`}>
               {online && !authOffline && !needsLogin
                 ? "● Sẵn sàng lên đường"
@@ -1036,9 +1040,16 @@ function AdventureWorkspace() {
                         maxLength={500}
                         value={goal}
                         onChange={(e) => setGoal(e.target.value)}
-                        placeholder="Ví dụ: Hiểu chương 2 môn Sinh học…"
+                        placeholder="Ví dụ: Nắm 5 ý chính của bài hôm nay…"
                         rows={3}
                       />
+                      <div className="quick-topic-field">
+                        <label className="field-label" htmlFor="quick-topic">CHỦ ĐỀ HỌC TẬP</label>
+                        <select id="quick-topic" value={topic} onChange={(event) => setTopic(event.target.value)}>
+                          {availableTopics.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                        </select>
+                        <small>Chủ đề đã chọn sẽ được giữ trên tấm vé của bạn.</small>
+                      </div>
                       <DurationPicker value={minutes} onChange={setMinutes} breakCount={breakCount} breakMinutes={breakMinutes} onBreakCountChange={setBreakCount} onBreakMinutesChange={setBreakMinutes} />
                       <button
                         className="primary"
@@ -1340,22 +1351,26 @@ function AdventureWorkspace() {
                         targetSeconds={active.target}
                         focusState={rest ? "break" : active.state}
                         restStop={rest ? {index:rest.index,count:rest.count} : null}
+                        upcomingRestStop={!rest && studyStage && active.breakPlan && studyStage.index < active.breakPlan.count
+                          ? { index: studyStage.index + 1, count: active.breakPlan.count, remainingSeconds: Math.max(0, (studyStage.endsAt - displayAt) / 1000) }
+                          : null}
                         motionAllowed={active.state === "focus" || active.state === "reconnecting"}
                         reconnect={active.reconnect}
                       />
                       {active.groupId && <p className="overhead-hint">Bản đồ đoàn mở thêm vùng sau khi máy chủ xác nhận phần đóng góp của phiên này.</p>}
                       <div className="focus-controls">
+                        <ThemeToggle />
                         <div className="study-fullscreen-control">
                           <button type="button" onClick={studyFullscreen.toggle} aria-pressed={studyFullscreen.isFullscreen} disabled={studyFullscreen.status === "pending" && !studyFullscreen.isFullscreen}>
                             {studyFullscreen.isFullscreen ? "Thoát toàn màn hình" : "Toàn màn hình"}
                           </button>
                           {studyFullscreen.message && <span className="study-fullscreen-status" role="status">{studyFullscreen.message}</span>}
                         </div>
-                        {now < active.lastAt && <div className="info-box">
+                        {deviceClockBehind && <div className="info-box">
                           <p>Đồng hồ thiết bị đang chạy lùi. Hãy đặt lại giờ đúng để tiếp tục; dữ liệu phiên vẫn được giữ.</p>
                           <button onClick={exportData}>Xuất bản sao phiên học</button>
                         </div>}
-                        <button disabled={now < active.lastAt} onClick={() => setConfirm("finish")}>
+                        <button disabled={deviceClockBehind} onClick={() => setConfirm("finish")}>
                           Kết thúc và lưu
                         </button>
                       </div>
@@ -2242,7 +2257,11 @@ function TicketEditor({ initiallyOpen, children }: { initiallyOpen: boolean; chi
   const [open, setOpen] = useState(initiallyOpen);
   return (
     <details className="ticket-editor" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary>Sửa vé · mục tiêu, chủ đề và thời gian</summary>
+      <summary>
+        <span className="ticket-editor-icon" aria-hidden="true">✎</span>
+        <span className="ticket-editor-copy"><strong>Sửa vé chuyến học</strong><small>Mục tiêu · chủ đề · thời gian</small></span>
+        <span className="ticket-editor-action" aria-hidden="true">{open ? "Thu gọn −" : "Chỉnh sửa +"}</span>
+      </summary>
       <div className="ticket-editor-fields">{children}</div>
     </details>
   );

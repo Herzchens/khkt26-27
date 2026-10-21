@@ -5,31 +5,32 @@ import {
   sceneTrainLayout,
   sceneTrainScale,
   sceneViewBoxForZoom,
+  sceneRestStationPosition,
+  sceneUpcomingRestStationX,
   sceneRestStopForPhase,
   SCENE_REST_STATION_X,
   SCENE_TRAIN_ARRIVAL_X,
   transitionSceneStop,
 } from "../src/adventure/sceneMotion.ts";
 
-test("the train transitions into a scheduled rest stop and departs when the break ends", () => {
-  const arriving = transitionSceneStop("travelling", null, 1, true);
-  assert.equal(arriving, "arriving");
-  assert.equal(completeSceneStopMotion(arriving), "parked");
+test("the station settles at the centered engine when its scheduled break starts", () => {
+  const parked = transitionSceneStop("travelling", null, 1, true);
+  assert.equal(parked, "parked");
+  assert.equal(completeSceneStopMotion(parked), "parked");
 
   const departing = transitionSceneStop("parked", 1, null, true);
   assert.equal(departing, "departing");
   assert.equal(completeSceneStopMotion(departing), "travelling");
 });
 
-test("rerenders within the same break do not replay the arrival animation", () => {
-  assert.equal(transitionSceneStop("arriving", 1, 1, true), "arriving");
+test("rerenders within the same break keep the station centered without replaying motion", () => {
   assert.equal(transitionSceneStop("parked", 1, 1, true), "parked");
 });
 
 test("away or reduced-motion state lands at a stable station pose without animating", () => {
   assert.equal(transitionSceneStop("travelling", null, 1, false), "parked");
   assert.equal(transitionSceneStop("parked", 1, null, false), "travelling");
-  assert.equal(transitionSceneStop("arriving", 1, 1, false), "parked");
+  assert.equal(transitionSceneStop("departing", 1, 1, false), "parked");
 });
 
 test("the station remains visible for departure and clears after the train leaves", () => {
@@ -45,20 +46,22 @@ test("every carriage remains inside travel, rest, and terminal views at supporte
   assert.equal(sceneViewBoxForZoom(1.5, true), "300 70 600 280");
 
   for (let count = 1; count <= 6; count += 1) {
-    const engineX = 450 + count * 32;
-    const train = sceneTrainLayout(engineX, count);
+    const engineX = 450;
+    const train = sceneTrainLayout(engineX);
     const leftExtent = count * 64 + 34;
-    assert.ok(train.travelX < SCENE_REST_STATION_X, `${count} cars keep a forward approach`);
-    assert.ok(train.travelX >= leftExtent, `${count} cars fit the unzoomed travel view`);
+    assert.equal(train.travelX, engineX, `${count} cars keep the engine centered while travelling`);
+    assert.equal(train.travelShift, 0);
+    assert.equal(train.restShift, 0);
 
     for (const zoom of [1, 1.25, 1.5]) {
       const restView = sceneViewBoxForZoom(zoom, false).split(" ").map(Number);
       const restLeft = restView[0];
       const restRight = restLeft + restView[2];
-      const travelScale = sceneTrainScale(count, train.travelX, restLeft);
-      const travelTail = train.travelX - leftExtent * travelScale;
-      const restTail = SCENE_REST_STATION_X - leftExtent * travelScale;
-      assert.ok(travelTail >= restLeft - 0.001, `${count} cars at travel zoom ${zoom}`);
+      const centeredScale = sceneTrainScale(count, engineX, restLeft);
+      const travelTail = engineX - leftExtent * centeredScale;
+      const restTail = SCENE_REST_STATION_X - leftExtent * centeredScale;
+      assert.equal((restLeft + restRight) / 2, engineX, `engine stays at viewport center at zoom ${zoom}`);
+      assert.ok(travelTail >= restLeft - 0.001, `${count} cars at centered travel zoom ${zoom}`);
       assert.ok(restTail >= restLeft - 0.001, `${count} cars at the centered rest stop at zoom ${zoom}`);
       assert.ok(SCENE_REST_STATION_X + 49 <= restRight, `${count} cars keep the rest engine visible at zoom ${zoom}`);
 
@@ -71,4 +74,49 @@ test("every carriage remains inside travel, rest, and terminal views at supporte
       assert.ok(SCENE_TRAIN_ARRIVAL_X + 49 <= terminalRight, `${count} cars keep the terminal engine visible at zoom ${zoom}`);
     }
   }
+});
+
+test("the upcoming rest station glides in from the right during the final twelve seconds", () => {
+  assert.equal(sceneUpcomingRestStationX(null), null);
+  assert.equal(sceneUpcomingRestStationX({ remainingSeconds: 13 }), null);
+  assert.equal(sceneUpcomingRestStationX({ remainingSeconds: 12 }), 1050);
+  assert.equal(sceneUpcomingRestStationX({ remainingSeconds: 6 }), 750);
+  assert.equal(sceneUpcomingRestStationX({ remainingSeconds: 0 }), 450);
+  assert.equal(sceneUpcomingRestStationX({ remainingSeconds: -3 }), null);
+  assert.equal(sceneUpcomingRestStationX({ remainingSeconds: Number.NaN }), null);
+});
+
+test("the active rest station takes precedence and a completed stop exits fully left", () => {
+  const previous = { index: 1, count: 2 };
+  const current = { index: 2, count: 2 };
+  assert.deepEqual(sceneRestStationPosition({ index: 1, count: 2 }, null, previous, "parked"), {
+    stop: previous,
+    x: 450,
+    phase: "parked",
+  });
+  assert.deepEqual(sceneRestStationPosition(current, null, previous, "departing"), {
+    stop: current,
+    x: 450,
+    phase: "parked",
+  });
+  assert.deepEqual(sceneRestStationPosition(null, { index: 2, count: 2, remainingSeconds: 6 }, null, "travelling"), {
+    stop: { index: 2, count: 2 },
+    x: 750,
+    phase: "approaching",
+  });
+  assert.deepEqual(sceneRestStationPosition(null, { index: 2, count: 2, remainingSeconds: -1 }, null, "travelling"), {
+    stop: null,
+    x: null,
+    phase: "travelling",
+  });
+  assert.deepEqual(sceneRestStationPosition(null, null, previous, "departing"), {
+    stop: previous,
+    x: -150,
+    phase: "departing",
+  });
+  assert.deepEqual(sceneRestStationPosition(null, null, previous, "travelling"), {
+    stop: null,
+    x: null,
+    phase: "travelling",
+  });
 });

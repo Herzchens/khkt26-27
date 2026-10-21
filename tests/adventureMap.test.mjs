@@ -2,12 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFile } from "node:fs/promises";
 import { createServer } from "vite";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { mapGeometry, stopIndices } from "../src/adventure/mapGeometry.ts";
 import {
   mapFogApertureScale,
+  mapFogApertureTransform,
   mapFogBlobPath,
   mapFogBlobPoints,
   mapFogMotionShouldRun,
@@ -75,7 +77,7 @@ test("map railway layers share one continuous route and unopened station names s
   assert.doesNotMatch(markup, /Đồng cỏ Gió|Rừng Sương mù|Đèo Ánh sao|Thành phố Bình minh/u);
 });
 
-test("one opaque mist cover hides unrevealed map under a soft aperture mask", () => {
+test("fog uses billowed noise density, bright soft wisps, and irregular reveal openings", () => {
   const markup = renderToStaticMarkup(
     React.createElement(TopDownMap, {
       journey: { branch: "coast", station: 0, remaining: 0, threshold: 1800 },
@@ -86,11 +88,28 @@ test("one opaque mist cover hides unrevealed map under a soft aperture mask", ()
   assert.match(markup, /class="map-fog-cover"[^>]*mask="url\(#.+-apertures\)"/u);
   assert.match(markup, /class="map-fog-layer"/u);
   assert.doesNotMatch(markup, /cartoon-cloud-body|map-cloud-shape/u);
-  assert.match(markup, /map-fog-wisp/u);
+  assert.match(markup, /class="map-fog-cloud-density"/u);
+  assert.match(markup, /feTurbulence type="fractalNoise" baseFrequency="\.004 \.006" numOctaves="3"/u);
+  assert.match(markup, /feColorMatrix in="cloudNoise" type="matrix"/u);
+  assert.match(markup, /feComponentTransfer in="cloudLuminance" result="cloudDensity"/u);
+  assert.match(markup, /feDisplacementMap in="cloudDensity" in2="cloudNoise"/u);
+  assert.match(markup, /feFlood flood-color="var\(--fog-bank-blue\)"/u);
+  assert.match(markup, /feComposite in="blueFlood" in2="softBanks" operator="in"/u);
+  assert.match(markup, /class="map-fog-eddy-density"/u);
+  assert.match(markup, /feGaussianBlur in="sharpWisps" stdDeviation="9 7" result="wispGlow"/u);
+  assert.doesNotMatch(markup, /<path class="map-fog-(?:bank|wisp)/u);
+  assert.doesNotMatch(markup, /class="map-fog-noise"/u);
   assert.match(markup, /<radialGradient[^>]*r="50%"[^>]*>[\s\S]*?<stop offset="100%" stop-color="#000" stop-opacity="0"/u);
   assert.match(markup, /stop-color="#000" stop-opacity="1"/u);
-  assert.match(markup, /filterUnits="objectBoundingBox"/u);
-  assert.equal([...markup.matchAll(/<path filter="url\(#[^"]+-mist-blur\)"/gu)].length, 3);
+  assert.match(markup, /filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse"/u);
+});
+
+test("two slow fog transforms animate only while visible and are disabled by reduced motion", async () => {
+  const stylesheet = await readFile(resolve(projectRoot, "src/adventure/fog.css"), "utf8");
+
+  assert.match(stylesheet, /\.map-fog-flow--slow\.is-active\s*\{\s*animation: map-fog-drift-slow/u);
+  assert.match(stylesheet, /\.map-fog-flow--quick\.is-active\s*\{\s*animation: map-fog-drift-quick/u);
+  assert.match(stylesheet, /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.map-fog-flow\.is-active\s*\{\s*animation:\s*none;/u);
 });
 
 test("fog apertures are deterministic and reveal only inside each node's approach window", () => {
@@ -103,12 +122,20 @@ test("fog apertures are deterministic and reveal only inside each node's approac
   const first = mapFogBlobPoints("5-3");
   assert.deepEqual(mapFogBlobPoints("5-3"), first, "the same map node keeps the same edge shape");
   assert.notDeepEqual(mapFogBlobPoints("5-3"), mapFogBlobPoints("5-4"));
-  assert.equal(first.length, 16);
+  assert.ok(first.length >= 18);
   assert.match(mapFogBlobPath("5-3"), /\bZ$/u);
+  const radii = first.map((point) => Math.hypot(point.x, point.y));
+  assert.ok(Math.max(...radii) - Math.min(...radii) >= 0.25, "the aperture edge is irregular rather than circular");
   for (const point of first) {
     const radius = Math.hypot(point.x, point.y);
-    assert.ok(radius >= 0.86 && radius <= 1.15, "organic boundary stays within bounded radius");
+    assert.ok(radius >= 0.72 && radius <= 1.3, "organic boundary stays within bounded radius");
   }
+
+  const transform = mapFogApertureTransform({ id: "5-3", x: 405, y: 285, angle: 0, size: 1, clearsAt: 0 }, 1);
+  const radiiInTransform = transform.match(/scale\(([\d.]+) ([\d.]+)\)/u);
+  assert.ok(radiiInTransform);
+  assert.ok(Number(radiiInTransform[1]) >= 155, "wide aperture banks overlap along the 155px grid columns");
+  assert.ok(Number(radiiInTransform[2]) >= 110, "tall aperture banks overlap along the 110px grid rows");
 });
 
 test("fog motion pauses offscreen, when hidden, and for reduced motion", () => {
