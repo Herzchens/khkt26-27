@@ -1,11 +1,21 @@
 import "dotenv/config";
 import { z } from "zod";
+export const adminUserIdsSchema = z.string().default("").transform((value, ctx) => {
+  const ids = value.split(",").map((id) => id.trim().toLowerCase()).filter(Boolean);
+  const result = z.array(z.uuid()).safeParse(ids);
+  if (!result.success) {
+    ctx.addIssue({ code: "custom", message: "ADMIN_USER_IDS must be comma-separated UUIDs" });
+    return z.NEVER;
+  }
+  return [...new Set(result.data)];
+});
 export const config = z
   .object({
     DATABASE_URL: z.string().min(1),
     REDIS_URL: z.url(),
     JWT_SECRET: z.string().min(32),
     METRICS_TOKEN: z.string().min(32).optional(),
+    ADMIN_USER_IDS: adminUserIdsSchema,
     PORT: z.coerce.number().int().min(1).max(65535).default(3000),
     HOST: z.string().default("0.0.0.0"),
     NODE_ENV: z

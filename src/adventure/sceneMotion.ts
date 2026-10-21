@@ -3,12 +3,14 @@ export type SceneStationPhase = SceneStopPhase | "approaching";
 export type SceneRestStop = { index: number; count: number };
 export type SceneUpcomingRestStop = SceneRestStop & { remainingSeconds: number };
 
-export const SCENE_REST_STATION_X = 450;
+export const SCENE_ENGINE_CENTER_X = 450;
+export const SCENE_REST_STATION_X = SCENE_ENGINE_CENTER_X;
 export const SCENE_REST_APPROACH_SECONDS = 12;
 export const SCENE_REST_APPROACH_START_X = 1050;
 export const SCENE_REST_DEPARTURE_END_X = -150;
-export const SCENE_ARRIVAL_STATION_X = 780;
-export const SCENE_TRAIN_ARRIVAL_X = 635;
+export const SCENE_START_DEPARTURE_SECONDS = 1.9;
+export const SCENE_ARRIVAL_STATION_X = SCENE_ENGINE_CENTER_X;
+export const SCENE_TRAIN_ARRIVAL_X = SCENE_ENGINE_CENTER_X;
 const SCENE_TRAIN_CARRIAGE_STEP = 64;
 
 /** Keep the engine centered through ordinary travel and scheduled breaks. */
@@ -17,7 +19,7 @@ export function sceneTrainLayout(engineX: number) {
     travelX: engineX,
     travelShift: 0,
     restShift: 0,
-    arrivalShift: SCENE_TRAIN_ARRIVAL_X - engineX,
+    arrivalShift: SCENE_ENGINE_CENTER_X - engineX,
   };
 }
 
@@ -36,11 +38,27 @@ export function sceneTrainScale(
   return Math.max(0, Math.min(1, availableLeft / sceneTrainLeftExtent(carriageCount)));
 }
 
-export function sceneViewBoxForZoom(zoom: number, terminal: boolean): string {
+export function sceneViewBoxForZoom(zoom: number, terminal = false): string {
   const width = 900 / zoom;
   const height = 420 / zoom;
-  const left = terminal ? 900 - width : 450 - width / 2;
+  const centerX = terminal ? SCENE_ARRIVAL_STATION_X : SCENE_ENGINE_CENTER_X;
+  const left = centerX - width / 2;
   return `${left} ${210 - height / 2} ${width} ${height}`;
+}
+
+/** Show the departure footprint at the start, then slide it off the left edge. */
+export function sceneDepartureStationX(elapsedSeconds: number): number | null {
+  if (!Number.isFinite(elapsedSeconds) || elapsedSeconds < 0 || elapsedSeconds > SCENE_START_DEPARTURE_SECONDS)
+    return null;
+  return elapsedSeconds === 0 ? SCENE_ENGINE_CENTER_X : SCENE_REST_DEPARTURE_END_X;
+}
+
+/** Bring the final station in from the right during the last twelve trip seconds. */
+export function sceneArrivalStationX(remainingSeconds: number): number | null {
+  if (!Number.isFinite(remainingSeconds) || remainingSeconds < 0 || remainingSeconds > SCENE_REST_APPROACH_SECONDS)
+    return null;
+  const travel = SCENE_REST_APPROACH_START_X - SCENE_ENGINE_CENTER_X;
+  return SCENE_ENGINE_CENTER_X + (travel * remainingSeconds) / SCENE_REST_APPROACH_SECONDS;
 }
 
 /** Place an upcoming station just outside the right edge, then center it at break time. */

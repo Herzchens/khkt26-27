@@ -1,5 +1,6 @@
 import { adventureRoutes } from "./adventure/routes.js";
 import { experimentRoutes } from "./experiments.js";
+import { adminRoutes } from "./admin.js";
 import { localRead, verifyLocalUrl } from "./localStorage.js";
 import { Metrics } from "./metrics.js";
 import Fastify, { type FastifyRequest } from "fastify";
@@ -240,6 +241,7 @@ export async function buildApp(deps?: {
         "Account no longer exists",
       );
   };
+  adminRoutes(app, db, authenticate);
   adventureRoutes(app, db, authenticate);
   experimentRoutes(app, db);
   const authLimits = { rateLimit: { max: 10, timeWindow: "1 minute" } };

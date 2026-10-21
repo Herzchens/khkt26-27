@@ -68,6 +68,13 @@ export function totalDuration(s: Pick<ActiveTrip, "target" | "breakPlan">): numb
   return scheduledTotalDurationSeconds(s.target, s.breakPlan);
 }
 
+/** Visual trip timing includes scheduled breaks and never uses credited focus time. */
+export function tripSceneTiming(s: Pick<ActiveTrip, "started" | "target" | "breakPlan">, now: number) {
+  const duration = totalDuration(s);
+  const elapsedSeconds = Math.min(duration, Math.max(0, (now - s.started) / 1000));
+  return { elapsedSeconds, remainingSeconds: Math.max(0, duration - elapsedSeconds) };
+}
+
 export function breakStatus(s: Pick<ActiveTrip, "started" | "target" | "breakPlan">, now: number) {
   return scheduledBreakStatus(s.started, s.target, s.breakPlan, now);
 }

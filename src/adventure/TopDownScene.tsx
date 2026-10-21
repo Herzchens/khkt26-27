@@ -2,24 +2,28 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { AnimationEvent, CSSProperties } from "react";
 import {
   completeSceneStopMotion,
+  SCENE_ENGINE_CENTER_X,
   SCENE_ARRIVAL_STATION_X,
   SCENE_REST_STATION_X,
   SCENE_REST_DEPARTURE_END_X,
-  SCENE_TRAIN_ARRIVAL_X,
   sceneTrainScale,
   sceneTrainLayout,
   sceneViewBoxForZoom,
+  sceneArrivalStationX,
+  sceneDepartureStationX,
   sceneRestStationPosition,
   transitionSceneStop,
   type SceneRestStop,
   type SceneUpcomingRestStop,
   type SceneStopPhase,
 } from "./sceneMotion";
+import { MapScenery, OverheadStationFootprint } from "./mapScenery";
 import "./fog.css";
 import "./travelScene.css";
 
 type Carriage = { id: string; name: string; color: string };
 type SceneArrival = { label: string; completed: boolean };
+export type SceneSessionTiming = { elapsedSeconds: number; remainingSeconds: number };
 
 function SceneStation({
   centerX,
@@ -29,41 +33,34 @@ function SceneStation({
   accessibleLabel,
 }: {
   centerX: number;
-  kind: "rest" | "arrival";
+  kind: "rest" | "arrival" | "departure";
   title: string;
   detail: string;
   accessibleLabel: string;
 }) {
+  const className = kind === "rest"
+    ? "travel-rest-stop"
+    : kind === "arrival"
+      ? "travel-arrival-stop"
+      : "travel-departure-stop";
   return (
     <g
-      className={kind === "rest" ? "travel-rest-stop" : "travel-arrival-stop"}
+      className={className}
       transform={`translate(${centerX} 18)`}
       data-station-x={centerX}
       role="img"
       aria-label={accessibleLabel}
     >
-      <ellipse cx="0" cy="286" rx="105" ry="12" fill="#507651" opacity=".15" />
-      <path d="M-90 269q4-12 17-12h146q13 0 17 12v13H-90Z" fill="#e7d5a8" stroke="#846e4c" strokeWidth="3" />
-      <path d="M-75 265h150" stroke="#fff5d9" strokeWidth="3" strokeLinecap="round" />
-      <rect x="33" y="253" width="8" height="32" rx="3" fill="#956d4d" />
-      <path d="M-39 233q0-5 6-5h66q6 0 6 5v19h-78Z" fill="#fff3cc" stroke="#8a6848" strokeWidth="3" />
-      <path d="M-43 233q39-22 79 0" fill="#d8875e" stroke="#8a6848" strokeWidth="3" strokeLinejoin="round" />
-      <text x="0" y="240" textAnchor="middle" fill="#4c664a" fontSize={kind === "rest" ? 8 : 7} fontWeight="900">{title}</text>
-      <text x="0" y="249" textAnchor="middle" fill="#8c7251" fontSize="7" fontWeight="700">{detail}</text>
+      <OverheadStationFootprint
+        x={0}
+        y={251}
+        roofColor={kind === "arrival" ? "#d8a552" : kind === "departure" ? "#82a179" : "#d8875e"}
+        title={title}
+        detail={detail}
+      />
     </g>
   );
 }
-
-const sceneTrees = [
-  [82, 148, 0.7], [228, 179, 0.62], [350, 143, 0.75], [527, 177, 0.65],
-  [665, 147, 0.78], [821, 177, 0.62], [75, 296, 0.66], [250, 297, 0.8],
-  [505, 285, 0.72], [737, 296, 0.78],
-] as const;
-
-const sceneHouses = [
-  [405, 158, "#ce8a65"],
-  [812, 277, "#d2a25f"],
-] as const;
 
 export function TopDownScene({
   carriages,
@@ -75,6 +72,7 @@ export function TopDownScene({
   restStop = null,
   upcomingRestStop = null,
   arrival = null,
+  sessionTiming,
   motionAllowed = true,
 }: {
   carriages: Carriage[];
@@ -86,6 +84,7 @@ export function TopDownScene({
   restStop?: SceneRestStop | null;
   upcomingRestStop?: SceneUpcomingRestStop | null;
   arrival?: SceneArrival | null;
+  sessionTiming?: SceneSessionTiming;
   motionAllowed?: boolean;
 }) {
   const id = useId().replace(/[^a-zA-Z0-9_-]/g, "");
@@ -137,17 +136,24 @@ export function TopDownScene({
       previousRestStop.current = { index: restIndex, count: restCount };
     else if (previousIndex !== null && !sceneMotionAllowed) previousRestStop.current = null;
   }, [restIndex, restCount, sceneMotionAllowed]);
-  const engineX = SCENE_REST_STATION_X;
+  const engineX = SCENE_ENGINE_CENTER_X;
   const { travelX, travelShift, restShift, arrivalShift } = sceneTrainLayout(engineX);
-  const viewBox = sceneViewBoxForZoom(zoom, Boolean(arrival));
+  const viewBox = sceneViewBoxForZoom(zoom);
   const viewBoxLeft = Number(viewBox.split(" ", 1)[0]);
   const trainScale = sceneTrainScale(
     carriages.length,
-    arrival ? SCENE_TRAIN_ARRIVAL_X : travelX,
+    travelX,
     viewBoxLeft,
   );
   const chosen = carriages.find((car) => car.id === selected) ?? carriages[0];
-  const moving = !arrival && running && sceneMotionAllowed;
+  const finalStationX = !arrival && !restStop && sessionTiming
+    ? sceneArrivalStationX(sessionTiming.remainingSeconds)
+    : null;
+  const departureStationX = !arrival && !restStop && finalStationX === null && sessionTiming
+    ? sceneDepartureStationX(sessionTiming.elapsedSeconds)
+    : null;
+  const finalStationArrived = finalStationX !== null && sessionTiming?.remainingSeconds === 0;
+  const moving = !arrival && !finalStationArrived && running && sceneMotionAllowed;
   const arrivalLabel = arrival?.label.trim() || (arrival?.completed ? "Đã đến ga cuối." : "Chuyến đã dừng.");
   const restStation = sceneRestStationPosition(
     restStop,
@@ -157,6 +163,8 @@ export function TopDownScene({
   );
   const sceneStatus = arrival
     ? arrivalLabel
+    : finalStationX !== null
+      ? finalStationArrived ? "đã đến ga cuối" : "ga cuối đang đến gần"
     : restStation.phase === "approaching"
     ? "trạm nghỉ đang đến gần"
     : stopPhase === "parked" && restStop
@@ -168,6 +176,34 @@ export function TopDownScene({
           : "cảnh vật đang dừng";
   const visibleRestStop = arrival ? null : restStation.stop;
   const renderedStopPhase = arrival ? "arrived" : stopPhase;
+  const sessionStation = arrival
+    ? {
+        kind: "arrival" as const,
+        x: SCENE_ARRIVAL_STATION_X,
+        phase: "arrived",
+        title: arrival.completed ? "GA CUỐI" : "ĐIỂM DỪNG",
+        detail: arrival.completed ? "ĐÃ HOÀN THÀNH" : "KẾT THÚC SỚM",
+        accessibleLabel: `${arrival.completed ? "Ga cuối" : "Điểm dừng cuối"}: ${arrivalLabel}`,
+      }
+    : finalStationX !== null
+      ? {
+          kind: "arrival" as const,
+          x: finalStationX,
+          phase: sessionTiming?.remainingSeconds === 0 ? "arrived" : "approaching",
+          title: "GA CUỐI",
+          detail: `CÒN ${Math.ceil(sessionTiming?.remainingSeconds ?? 0)} GIÂY`,
+          accessibleLabel: `Ga cuối, còn ${Math.ceil(sessionTiming?.remainingSeconds ?? 0)} giây`,
+        }
+      : departureStationX !== null
+        ? {
+            kind: "departure" as const,
+            x: departureStationX,
+            phase: sessionTiming?.elapsedSeconds === 0 ? "starting" : "departing",
+            title: "GA KHỞI ĐẦU",
+            detail: "ĐOÀN KHỞI HÀNH",
+            accessibleLabel: "Ga khởi đầu của chuyến học",
+          }
+        : null;
   const finishStopMotion = (event: AnimationEvent<SVGGElement>) => {
     if (event.animationName === "travel-stop-depart") {
       setStopPhase((phase) => completeSceneStopMotion(phase));
@@ -186,6 +222,10 @@ export function TopDownScene({
       data-stop-motion={arrival ? false : sceneMotionAllowed}
       data-arrival={arrival ? "true" : undefined}
       data-arrival-complete={arrival ? arrival.completed : undefined}
+      data-terminal-approaching={finalStationX !== null && !finalStationArrived ? "true" : undefined}
+      data-terminal-arrived={finalStationArrived ? "true" : undefined}
+      data-session-elapsed={sessionTiming?.elapsedSeconds}
+      data-session-remaining={sessionTiming?.remainingSeconds}
     >
       <div className="travel-toolbar">
         <span>{sceneStatus.charAt(0).toUpperCase() + sceneStatus.slice(1)}</span>
@@ -208,75 +248,12 @@ export function TopDownScene({
           : `Góc nhìn 2D: ${carriages.length} toa, ${sceneStatus}`}
       >
         <defs>
-          <linearGradient id={`${id}-sky`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#bde2df" />
-            <stop offset="1" stopColor="#e4edc9" />
-          </linearGradient>
           <pattern id={`${id}-sleepers`} width="30" height="50" patternUnits="userSpaceOnUse">
             <rect x="3" y="2" width="8" height="46" rx="3" fill="#9a7654" />
           </pattern>
         </defs>
-        <rect width="900" height="420" fill={`url(#${id}-sky)`} />
-        <circle cx="774" cy="64" r="28" fill="#f8d989" opacity=".9" />
-        <circle cx="774" cy="64" r="38" fill="#fff1c6" opacity=".25" />
-        <g className="travel-far-layer travel-parallax-layer" aria-hidden="true">
-          {[0, 900].map((offset) => (
-            <g key={offset} transform={`translate(${offset} 0)`}>
-              <path d="M0 142 C125 111 202 129 306 145 S481 168 579 139 S759 116 900 143 V420 H0Z" fill="#bdd99d" />
-              <path d="M0 179 C113 153 198 175 294 183 S475 198 574 174 S780 154 900 185 V420 H0Z" fill="#a7cc87" />
-              <path d="M0 252 C125 228 232 249 351 264 S570 273 694 248 S829 238 900 252 V420 H0Z" fill="#90bd78" />
-              <path d="M92 143q31-12 64-2M375 176q38-14 77-3M691 143q32-11 62-1" fill="none" stroke="#e4efc3" strokeWidth="4" strokeLinecap="round" opacity=".8" />
-              {coast && <path d="M0 367q90-20 180 0t180 0 180 0 180 0 180 0v53H0Z" fill="#76bbc0" opacity=".45" />}
-            </g>
-          ))}
-        </g>
-        <g className="scene-sky-cloud" aria-hidden="true" transform="translate(115 78)">
-          <path d="M0 11q1-10 11-10 5 0 8 4 3-8 12-8 13 0 14 13 9 1 8 9H5q-8 0-5-8Z" fill="#fffdf2" stroke="#d0e1c7" strokeWidth="2" />
-        </g>
-        <g className="scene-sky-cloud" aria-hidden="true" transform="translate(718 102) scale(.78)">
-          <path d="M0 11q1-10 11-10 5 0 8 4 3-8 12-8 13 0 14 13 9 1 8 9H5q-8 0-5-8Z" fill="#fffdf2" stroke="#d0e1c7" strokeWidth="2" />
-        </g>
-        <g className="travel-mid-layer travel-parallax-layer" aria-hidden="true">
-          {[0, 900].map((offset) => (
-            <g key={offset} transform={`translate(${offset} 0)`}>
-              {sceneTrees.map(([x, y, size], index) => (
-                <g key={`${x}-${y}`} transform={`translate(${x} ${y}) scale(${size})`}>
-                  <ellipse cx="3" cy="21" rx="26" ry="12" fill="#3e775c" opacity=".2" />
-                  <path d="M-5 8h10v20H-5Z" fill="#98744d" />
-                  <circle r="23" fill={index % 3 ? "#76a96f" : "#5b9970"} stroke="#467f62" strokeWidth="3" />
-                  <circle cx="-13" cy="5" r="14" fill="#a1c87e" stroke="#5a9568" strokeWidth="2" />
-                  <circle cx="13" cy="6" r="15" fill="#6ba170" stroke="#4b8762" strokeWidth="2" />
-                  <ellipse cx="-6" cy="-8" rx="9" ry="5" fill="#d2e89d" opacity=".7" />
-                </g>
-              ))}
-              {sceneHouses.map(([x, y, roof], index) => (
-                <g key={x} transform={`translate(${x} ${y})`}>
-                  <ellipse cx="2" cy="24" rx="29" ry="9" fill="#4b725b" opacity=".2" />
-                  <rect x="-23" y="-15" width="46" height="38" rx="6" fill="#fff0cb" stroke="#7e684e" strokeWidth="3" />
-                  <path d="M-29-13 0-37 29-13Z" fill={roof} stroke="#805f49" strokeWidth="3" strokeLinejoin="round" />
-                  <rect x="-7" y="2" width="14" height="21" rx="5" fill="#a66e50" />
-                  <rect x="-18" y="-7" width="9" height="9" rx="2" fill="#91c8c4" />
-                  <rect x="9" y="-7" width="9" height="9" rx="2" fill="#91c8c4" />
-                  {index === 0 && <path d="M0-37v-12h12" fill="none" stroke="#765d48" strokeWidth="3" strokeLinecap="round" />}
-                </g>
-              ))}
-              <path d="M25 295q33-12 65 0M344 299q28-12 56 0M575 291q30-14 60 0M790 298q24-10 50 0" fill="none" stroke="#e4e4ae" strokeWidth="6" strokeLinecap="round" opacity=".8" />
-            </g>
-          ))}
-        </g>
-        <g className="travel-near-layer travel-parallax-layer" aria-hidden="true">
-          {[0, 900].map((offset) => (
-            <g key={offset} transform={`translate(${offset} 0)`}>
-              <path d="M0 376q90-22 178 0t178 0 178 0 178 0 188 0v44H0Z" fill="#80b581" opacity=".68" />
-              {Array.from({ length: 23 }, (_, index) => (
-                <g key={index} transform={`translate(${20 + index * 39} ${index % 2 ? 377 : 392})`}>
-                  <path d="M0 13q-5-13-2-24M0 13q4-11 8-17M-1 4q-8-8-11-11" fill="none" stroke="#477f5c" strokeWidth="2.5" strokeLinecap="round" />
-                  {index % 3 === 0 && <circle cx="-2" cy="-11" r="3.3" fill="#f7e4a8" />}
-                </g>
-              ))}
-            </g>
-          ))}
-        </g>
+        <rect width="900" height="420" fill="#c4dda0" />
+        <MapScenery kind="travel" coast={coast} />
         <rect y="183" width="900" height="54" fill="#8b7355" opacity=".45" />
         <rect y="188" width="900" height="44" fill="#c19b6b" />
         <g className="travel-track" aria-hidden="true">
@@ -305,14 +282,24 @@ export function TopDownScene({
             />
           </g>
         )}
-        {arrival && (
-          <SceneStation
-            centerX={SCENE_ARRIVAL_STATION_X}
-            kind="arrival"
-            title={arrival.completed ? "GA CUỐI" : "ĐIỂM DỪNG"}
-            detail={arrival.completed ? "ĐÃ HOÀN THÀNH" : "KẾT THÚC SỚM"}
-            accessibleLabel={`${arrival.completed ? "Ga cuối" : "Điểm dừng cuối"}: ${arrivalLabel}`}
-          />
+        {sessionStation && (
+          <g
+            className={`travel-session-stop-position travel-${sessionStation.kind}-stop-position`}
+            data-station-phase={sessionStation.phase}
+            data-station-x={sessionStation.x}
+            style={{
+              "--station-shift": `${sessionStation.x - SCENE_ENGINE_CENTER_X}px`,
+              "--station-departure-shift": `${SCENE_REST_DEPARTURE_END_X - SCENE_ENGINE_CENTER_X}px`,
+            } as CSSProperties}
+          >
+            <SceneStation
+              centerX={SCENE_ENGINE_CENTER_X}
+              kind={sessionStation.kind}
+              title={sessionStation.title}
+              detail={sessionStation.detail}
+              accessibleLabel={sessionStation.accessibleLabel}
+            />
+          </g>
         )}
         <g className="travel-train-motion">
           <g

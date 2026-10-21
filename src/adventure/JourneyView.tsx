@@ -1,6 +1,7 @@
 import type { Journey } from "../../backend/src/adventure/domain";
 import { TopDownMap } from "./TopDownMap";
 import { TopDownScene } from "./TopDownScene";
+import type { SceneSessionTiming } from "./TopDownScene";
 import type { ActiveTrip } from "./focus";
 import { journeyExplorationFraction, sceneryShouldMove } from "./exploration";
 
@@ -15,6 +16,7 @@ export function JourneyView({
   targetSeconds,
   restStop,
   upcomingRestStop,
+  sessionTiming,
   motionAllowed,
 }: {
   journey?: Journey;
@@ -27,6 +29,7 @@ export function JourneyView({
   targetSeconds?: number;
   restStop?: { index: number; count: number } | null;
   upcomingRestStop?: { index: number; count: number; remainingSeconds: number } | null;
+  sessionTiming?: SceneSessionTiming;
   motionAllowed?: boolean;
 }) {
   const exploration = journeyExplorationFraction(
@@ -48,6 +51,7 @@ export function JourneyView({
           coast={coast}
           restStop={restStop}
           upcomingRestStop={upcomingRestStop}
+          sessionTiming={sessionTiming}
           motionAllowed={motionAllowed}
         />
       ) : (

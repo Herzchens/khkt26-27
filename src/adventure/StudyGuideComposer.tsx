@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useReducer, useState } from "react";
 import type { StudyGuideDraft } from "./studyGuide";
+import { StudyGuideArticle } from "./StudyGuideRenderer";
+import { createStudyGuideReviewState, reduceStudyGuideReview } from "./studyGuideReview";
 import "./studyGuide.css";
 
 export function StudyGuideComposer({ disabled, canGenerate, unavailableReason, onGenerate, onCancel, onUse, onDownload }: {
@@ -12,7 +14,8 @@ export function StudyGuideComposer({ disabled, canGenerate, unavailableReason, o
   onDownload: (draft: StudyGuideDraft) => void;
 }) {
   const [prompt, setPrompt] = useState("");
-  const [draft, setDraft] = useState<StudyGuideDraft | null>(null);
+  const [review, dispatch] = useReducer(reduceStudyGuideReview, createStudyGuideReviewState());
+  const { draft } = review;
   const validDraft = draft && draft.title.trim().length > 0 && draft.title.trim().length <= 120 && draft.text.trim().length >= 10 && draft.text.trim().length <= 20000;
   return <section className="study-guide" aria-labelledby="study-guide-title">
     <div className="study-guide__heading">
@@ -25,16 +28,22 @@ export function StudyGuideComposer({ disabled, canGenerate, unavailableReason, o
       placeholder="Ví dụ: Soạn bài ôn Sinh học lớp 10 về tế bào, giải thích dễ hiểu, có bảng so sánh tế bào nhân sơ và nhân thực, kèm 5 câu tự luyện." />
     <p id="study-guide-prompt-help" className="material-hint">Ghi môn/lớp, phần kiến thức và mức độ mong muốn. Bản nháp chỉ trở thành tài liệu học sau khi bạn kiểm tra và xác nhận.</p>
     <button className="study-guide__generate" disabled={disabled || !canGenerate || prompt.trim().length < 10}
-      onClick={() => { void onGenerate(prompt.trim()).then(value => { if (value) setDraft(value); }); }}>
+      onClick={() => { void onGenerate(prompt.trim()).then(value => { if (value) dispatch({ type: "generated", draft: value }); }); }}>
       {disabled ? "Đang xử lý…" : draft ? "Soạn lại bản ôn tập" : "Tạo bản ôn tập bằng AI"}
     </button>
     {disabled && <div className="study-guide__waiting"><p role="status">AI đang soạn bản ôn tập, có thể mất khoảng một phút.</p><button onClick={onCancel}>Hủy tạo bản ôn tập</button></div>}
     {!canGenerate && <p className="material-hint">{unavailableReason}</p>}
     {draft && <div className="study-guide__draft">
-      <h4>Bản ôn tập của bạn</h4>
-      <p className="material-hint">Đọc lại và sửa những chỗ cần thiết. Nội dung này do AI soạn theo yêu cầu của bạn.</p>
-      <label>Tiêu đề<input maxLength={120} value={draft.title} disabled={disabled} onChange={event => setDraft({...draft, title:event.target.value})} /></label>
-      <label>Nội dung bản ôn tập<textarea rows={14} maxLength={20000} value={draft.text} disabled={disabled} onChange={event => setDraft({...draft, text:event.target.value})} /></label>
+      <div className="study-guide__draft-heading"><h4>Bản ôn tập của bạn</h4><p className="material-hint">AI đã soạn bản nháp theo yêu cầu của bạn. Hãy đọc lại, rồi sửa nếu cần.</p></div>
+      <div className="study-guide__draft-toolbar" role="group" aria-label="Chế độ xem bản ôn tập">
+        <button type="button" aria-pressed={review.view === "preview"} disabled={disabled} onClick={() => dispatch({ type: "set-view", view: "preview" })}>Bản xem trước</button>
+        <button type="button" aria-pressed={review.view === "edit"} disabled={disabled} onClick={() => dispatch({ type: "set-view", view: "edit" })}>Chỉnh sửa</button>
+      </div>
+      {review.view === "preview" ? <StudyGuideArticle title={draft.title} text={draft.text} /> : <div className="study-guide__editor">
+        <label htmlFor="study-guide-draft-title">Tiêu đề<input id="study-guide-draft-title" maxLength={120} value={draft.title} disabled={disabled} onChange={event => dispatch({ type: "edit-title", title: event.target.value })} /></label>
+        <label htmlFor="study-guide-draft-text">Nội dung Markdown<textarea id="study-guide-draft-text" rows={14} maxLength={20000} value={draft.text} disabled={disabled} onChange={event => dispatch({ type: "edit-text", text: event.target.value })} /></label>
+        <p className="material-hint">Bạn đang sửa bản Markdown gốc. Chuyển về bản xem trước để kiểm tra cách trình bày.</p>
+      </div>}
       <div className="choice-row">
         <button disabled={disabled || !validDraft} onClick={() => onUse(draft)}>Xác nhận và dùng làm tài liệu</button>
         <button disabled={disabled || !validDraft} onClick={() => onDownload(draft)}>Tải bản ôn tập (.txt)</button>

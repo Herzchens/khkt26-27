@@ -41,6 +41,10 @@ describe("prompt-generated study guide", () => {
     expect(request.config.responseJsonSchema).toEqual(studyGuideResponseJsonSchema);
     expect(request.config.systemInstruction).toBe(STUDY_GUIDE_SYSTEM_INSTRUCTION);
     expect(request.config.systemInstruction).toMatch(/không.*trích dẫn.*bịa|không.*bịa.*trích dẫn/iu);
+    expect(request.config.systemInstruction).toMatch(/gia sư|người hướng dẫn/iu);
+    expect(request.config.systemInstruction).toMatch(/từng bước|chia nhỏ|đoạn ngắn/iu);
+    expect(request.config.systemInstruction).toMatch(/câu hỏi tự luyện/iu);
+    expect(request.config.systemInstruction).toMatch(/\$H_2O\$/u);
     expect(request.config.abortSignal).toBeInstanceOf(AbortSignal);
     expect(JSON.parse(request.contents)).toEqual({ studyGuideRequest: input });
     expect(JSON.stringify(request)).not.toContain("test-only-private-key");

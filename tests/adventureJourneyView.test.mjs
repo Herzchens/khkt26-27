@@ -2,6 +2,7 @@ import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { tmpdir } from "node:os";
 import { createServer } from "vite";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
@@ -14,7 +15,7 @@ let JourneyView;
 before(async () => {
   vite = await createServer({
     configFile: resolve(projectRoot, "vite.config.ts"),
-    cacheDir: resolve(projectRoot, "node_modules/.vite-ticket-tests"),
+    cacheDir: resolve(tmpdir(), "viendu-v3-scene-tests", "journey-view"),
     appType: "custom",
     logLevel: "silent",
     server: { middlewareMode: true },
@@ -107,4 +108,17 @@ test("journey view uses the map and active 2D scene without exposing a 3D switch
   for (const markup of [mapMarkup, focusMarkup]) {
     assert.doesNotMatch(markup, /camera-switch|scene-3d|train-canvas|Cảnh 3D/u);
   }
+});
+
+test("journey view forwards total session timing to the active scene", () => {
+  const markup = renderToStaticMarkup(React.createElement(JourneyView, {
+    journey: undefined,
+    carriages: [{ id: "guest", name: "Toa Mây", color: "#398575" }],
+    ownId: "guest",
+    focusState: "focus",
+    sessionTiming: { elapsedSeconds: 90, remainingSeconds: 1710 },
+  }));
+
+  assert.match(markup, /data-session-elapsed="90"/u);
+  assert.match(markup, /data-session-remaining="1710"/u);
 });

@@ -41,9 +41,9 @@ test("the station remains visible for departure and clears after the train leave
   assert.equal(sceneRestStopForPhase(null, lastStop, "travelling"), null);
 });
 
-test("every carriage remains inside travel, rest, and terminal views at supported zoom levels", () => {
+test("the engine stays at the viewport center in travel and terminal views at every supported zoom", () => {
   assert.equal(sceneViewBoxForZoom(1.5, false), "150 70 600 280");
-  assert.equal(sceneViewBoxForZoom(1.5, true), "300 70 600 280");
+  assert.equal(sceneViewBoxForZoom(1.5, true), "150 70 600 280");
 
   for (let count = 1; count <= 6; count += 1) {
     const engineX = 450;
@@ -70,10 +70,25 @@ test("every carriage remains inside travel, rest, and terminal views at supporte
       const terminalRight = terminalLeft + terminalView[2];
       const terminalScale = sceneTrainScale(count, SCENE_TRAIN_ARRIVAL_X, terminalLeft);
       const terminalTail = SCENE_TRAIN_ARRIVAL_X - leftExtent * terminalScale;
+      assert.equal((terminalLeft + terminalRight) / 2, engineX, `terminal view remains centered at zoom ${zoom}`);
       assert.ok(terminalTail >= terminalLeft - 0.001, `${count} cars at the terminal at zoom ${zoom}`);
       assert.ok(SCENE_TRAIN_ARRIVAL_X + 49 <= terminalRight, `${count} cars keep the terminal engine visible at zoom ${zoom}`);
     }
   }
+});
+
+test("the trip start and destination stations meet the centered engine and approach from the right", async () => {
+  const { sceneArrivalStationX, sceneDepartureStationX } = await import("../src/adventure/sceneMotion.ts");
+
+  assert.equal(sceneDepartureStationX(0), 450);
+  assert.equal(sceneDepartureStationX(0.5), -150);
+  assert.equal(sceneDepartureStationX(2), null);
+  assert.equal(sceneArrivalStationX(12), 1050);
+  assert.equal(sceneArrivalStationX(6), 750);
+  assert.equal(sceneArrivalStationX(0), 450);
+  assert.equal(sceneArrivalStationX(-1), null);
+  assert.equal(sceneArrivalStationX(13), null);
+  assert.equal(sceneArrivalStationX(Number.NaN), null);
 });
 
 test("the upcoming rest station glides in from the right during the final twelve seconds", () => {

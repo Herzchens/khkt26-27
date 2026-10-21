@@ -23,6 +23,8 @@ node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'
 
 The launcher requires a PostgreSQL `DATABASE_URL`, a `redis://` or `rediss://` `REDIS_URL`, and a `JWT_SECRET` of at least 32 characters. If any is missing or invalid, startup stops with a configuration error. Production never starts PGlite or creates a local JWT secret.
 
+Admin reporting is denied by default. To enable it, set `ADMIN_USER_IDS` in the backend service variables to comma-separated account UUIDs from the `users.id` column. The backend validates these UUIDs at startup and checks the verified account ID for every admin request. Keep this variable server-side; do not expose it through a `VITE_` variable or add an admin role to account registration. Leave it empty to disable admin access. No database migration is required.
+
 ## Configure and deploy the service
 
 Set Railway's **Root Directory** to `/` so the service builds from the repository root. Railway should detect the root `Dockerfile`; clear any custom **Build Command** and **Start Command** left by a frontend-only deployment. In particular, remove `npm ci --include=dev && npm run build:web` and `npm run preview -- --host 0.0.0.0 --port $PORT`; those commands bypass the image's API server. With the overrides cleared, Railway builds the Dockerfile and uses its `npm start` command.

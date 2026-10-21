@@ -10,6 +10,15 @@ const trip = (target = 600) => ({
   reconnect: 0, distractions: 0,
 });
 
+test('scene timing uses the full scheduled trip, including breaks, rather than the clipped save timestamp', () => {
+  const scheduled = { ...trip(120), breakPlan: { count: 1, seconds: 60 } };
+  assert.deepEqual(focus.tripSceneTiming(scheduled, 1000), { elapsedSeconds: 0, remainingSeconds: 180 });
+  assert.deepEqual(focus.tripSceneTiming(scheduled, 91000), { elapsedSeconds: 90, remainingSeconds: 90 });
+  assert.deepEqual(focus.tripSceneTiming(scheduled, 171000), { elapsedSeconds: 170, remainingSeconds: 10 });
+  assert.deepEqual(focus.tripSceneTiming(scheduled, 191000), { elapsedSeconds: 180, remainingSeconds: 0 });
+  assert.deepEqual(focus.tripSceneTiming(scheduled, 0), { elapsedSeconds: 0, remainingSeconds: 180 });
+});
+
 test('blur, visibility, pagehide, and route departure record one distraction', () => {
   const first = depart(trip(), 11000);
   const duplicate = leaveFocusView(depart(first, 12000), 13000);

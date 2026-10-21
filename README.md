@@ -19,6 +19,10 @@ npm start
 
 Each departure is counted once as a distraction; returning resumes immediately. **Lịch sử chuyến đi** automatically shows every saved trip, including trips ended early, with a unique anonymous trip code, start/end times, a short goal summary, duration, distraction count, device category, and the server-graded question score. The category (PC, iOS, Android, iPad/Tablet, or unknown) is captured at trip start and preserved through offline storage and synchronization; older trips display **Chưa ghi nhận**. Raw browser identifiers are not stored. Account trips appear after synchronization; guest trips upload automatically when connected, keeping their local progress separate. Emails, account identifiers, and study documents are not published. CSV exports the latest 10,000 trips for experiments.
 
+## Admin reporting
+
+Admin reporting is disabled until the backend `ADMIN_USER_IDS` environment variable contains one or more comma-separated account UUIDs from the `users.id` column. Leave it empty to deny admin access. Configure it only in the backend environment, then restart the API. The server validates the signed-in account on every admin request; a client-supplied role does not grant access. Admin tools are read-only and report study timing, progress, group summaries, and graded quiz totals. They do not return personal goals, documents, or quiz feedback. Reports use UTC and analyze up to 20,000 recent sessions per selected window; the panel marks capped results.
+
 ## Scanned documents and exploration
 
 Import scanned PDFs or PNG/JPG/WebP/BMP images to recognize Vietnamese and English text with local OCR. Selectable PDF text is preserved; pages with little usable text are recognized individually. OCR workers, language data, and WebAssembly are bundled with the app and served from the same origin. Files are processed on the device; only the extracted study text is sent when the learner explicitly chooses AI questions. Progress and page indicators are shown during import. Cancelling, leaving the ticket, or switching accounts discards the unfinished import.

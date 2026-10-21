@@ -1,13 +1,20 @@
-.travel-scene .scene-sky-cloud {
-  opacity: 0.9;
+.travel-world {
+  background: #c4dda0;
 }
 
 .travel-scene .travel-rest-stop,
-.travel-scene .travel-arrival-stop {
+.travel-scene .travel-arrival-stop,
+.travel-scene .travel-departure-stop {
   filter: drop-shadow(0 3px 0 #61765020);
 }
 
 .travel-scene .travel-rest-stop-position {
+  transform-box: view-box;
+  transform-origin: 0 0;
+  transform: translateX(var(--station-shift));
+}
+
+.travel-scene .travel-session-stop-position {
   transform-box: view-box;
   transform-origin: 0 0;
   transform: translateX(var(--station-shift));
@@ -19,6 +26,19 @@
 }
 
 .travel-scene[data-stop-motion="false"] .travel-rest-stop-position {
+  transition: none;
+}
+
+.travel-scene[data-stop-motion="true"] .travel-session-stop-position[data-station-phase="departing"] {
+  transition: transform 850ms cubic-bezier(0.3, 0.7, 0.35, 1);
+}
+
+.travel-scene[data-stop-motion="true"] .travel-session-stop-position[data-station-phase="approaching"],
+.travel-scene[data-stop-motion="true"] .travel-session-stop-position[data-station-phase="arrived"] {
+  transition: transform 1000ms linear;
+}
+
+.travel-scene[data-stop-motion="false"] .travel-session-stop-position {
   transition: none;
 }
 
@@ -50,6 +70,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .travel-scene .travel-rest-stop-position,
+  .travel-scene .travel-session-stop-position,
   .travel-scene .travel-train-position,
   .travel-scene .travel-wheel,
   .travel-scene .train-steam-puff {

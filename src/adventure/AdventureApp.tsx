@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useBrowserView } from "./navigation";
 import { useAuthStore } from "@/store/authStore";
-import { post, request, REGISTRATION_PASSWORD_HINT } from "@/services/api";
+import { post, request } from "@/services/api";
+import { AuthForm } from "./AuthForm";
+import { AdminPanel } from "./AdminPanel";
+import { useAdminAccess } from "./useAdminAccess";
 import { SceneFallback } from "./SceneFallback";
 import { BoardingTicket } from "./BoardingTicket";
 import { StudyNotesInput } from "./StudyNotesInput";
@@ -26,6 +29,7 @@ import {
   breakStatus,
   studyStageStatus,
   totalDuration,
+  tripSceneTiming,
   depart,
   elapsedSeconds,
   focused,
@@ -101,7 +105,7 @@ export default function AdventureApp() {
 }
 function AdventureWorkspace() {
   const [requestedView, setView] = useBrowserView();
-  const views = ["station", "map", "carriage", "group", "journal", "experiments", "ticket", "focus", "summary", "account"];
+  const views = ["station", "map", "carriage", "group", "journal", "experiments", "ticket", "focus", "summary", "account", "admin"];
   const view = views.includes(requestedView) ? requestedView : "station";
   const { user, login, logout, offline: authOffline, needsLogin } = useAuthStore();
   const owner = user?.id ?? "guest";
@@ -120,6 +124,8 @@ function AdventureWorkspace() {
     [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false),
     [online, setOnline] = useState(true);
+  const adminAccess = useAdminAccess(owner, !!user && !needsLogin && online && !authOffline);
+  const workspaceNav = adminAccess.allowed ? [...nav, { id: "admin", icon: "▥", label: "Quản trị" }] : nav;
   const lastLocalDay = useRef(localDayKey(now));
   const [goal, setGoal] = useState(""),
     [topic, setTopic] = useState("biology"),
@@ -160,10 +166,6 @@ function AdventureWorkspace() {
     token: string;
     expires: number;
   } | null>(null);
-  const [authMode, setAuthMode] = useState<"login" | "register">("login"),
-    [email, setEmail] = useState(""),
-    [password, setPassword] = useState(""),
-    [name, setName] = useState("");
   const [confirm, setConfirm] = useState<"finish" | "leave" | "reset" | null>(null),
     [summary, setSummary] = useState<Session | null>(null);
   const [topics, setTopics] = useState<{ id: string; name: string }[]>([]);
@@ -836,7 +838,7 @@ function AdventureWorkspace() {
         </a>
         <div className="nav-heading">KHÔNG GIAN CỦA BẠN</div>
         <nav aria-label="Điều hướng chính">
-          {nav.map((n) => (
+          {workspaceNav.map((n) => (
             <button
               key={n.id}
               className={view === n.id ? "nav active" : "nav"}
@@ -875,13 +877,14 @@ function AdventureWorkspace() {
           <span>
             Không gian học tập <span className="slash">/</span>{" "}
             <strong>
-              {nav.find((n) => n.id === view)?.label ??
+              {workspaceNav.find((n) => n.id === view)?.label ??
                 (
                   {
                     ticket: "Vé học",
                     focus: "Chuyến đang chạy",
                     summary: "Thành quả",
                     account: "Tài khoản",
+                    admin: "Quản trị",
                   } as Record<string, string>
                 )[view] ??
                 "Ga chính"}
@@ -1354,6 +1357,7 @@ function AdventureWorkspace() {
                         upcomingRestStop={!rest && studyStage && active.breakPlan && studyStage.index < active.breakPlan.count
                           ? { index: studyStage.index + 1, count: active.breakPlan.count, remainingSeconds: Math.max(0, (studyStage.endsAt - displayAt) / 1000) }
                           : null}
+                        sessionTiming={tripSceneTiming(active, displayAt)}
                         motionAllowed={active.state === "focus" || active.state === "reconnecting"}
                         reconnect={active.reconnect}
                       />
@@ -1915,6 +1919,19 @@ function AdventureWorkspace() {
                 </>
               )}
               {view === "experiments" && <ExperimentResults />}
+              {view === "admin" && (adminAccess.allowed
+                ? <AdminPanel onClose={() => go("station")} onAccessDenied={adminAccess.refresh} />
+                : <section className="panel">
+                  <h2>Khu vực quản trị</h2>
+                  <p>{adminAccess.checking ? "Đang kiểm tra quyền truy cập…" : !user || needsLogin
+                    ? "Đăng nhập bằng tài khoản quản trị để xem báo cáo."
+                    : !online || authOffline ? "Kết nối lại máy chủ để mở báo cáo quản trị."
+                      : "Tài khoản này chưa được cấp quyền quản trị. Quyền được cấu hình tại máy chủ."}</p>
+                  <div className="choice-row">
+                    <button onClick={() => go("account")}>Mở tài khoản</button>
+                    {user && !needsLogin && online && !authOffline && <button disabled={adminAccess.checking} onClick={adminAccess.refresh}>Kiểm tra lại quyền</button>}
+                  </div>
+                </section>)}
               {view === "summary" &&
                 (summarySession ? (
                   <>
@@ -2079,96 +2096,17 @@ function AdventureWorkspace() {
                     </section>
                   )}
                   {(!user || needsLogin) && (
-                    <form
-                      className="panel form auth-form"
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        void run(async () => {
-                          await login(
-                            needsLogin && active && user ? user.email : email,
-                            password,
-                            authMode === "register" ? name : undefined,
-                          );
-                          go("station");
-                        });
-                      }}
-                    >
-                      <div className="choice-row">
-                        <button
-                          type="button"
-                          className={authMode === "login" ? "selected" : ""}
-                          onClick={() => setAuthMode("login")}
-                        >
-                          Đăng nhập
-                        </button>
-                        <button
-                          type="button"
-                          className={authMode === "register" ? "selected" : ""}
-                          disabled={!!active}
-                          onClick={() => setAuthMode("register")}
-                        >
-                          Tạo tài khoản
-                        </button>
-                      </div>
-                      {authMode === "register" && (
-                        <label>
-                          Tên của bạn
-                          <input
-                            required
-                            maxLength={100}
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            autoComplete="name"
-                          />
-                        </label>
-                      )}
-                      <label>
-                        Email
-                        <input
-                          required
-                          type="email"
-                          value={needsLogin && active && user ? user.email : email}
-                          readOnly={!!active}
-                          onChange={(e) => setEmail(e.target.value)}
-                          autoComplete="email"
-                        />
-                      </label>
-                      <label>
-                        Mật khẩu
-                        <input
-                          required
-                          type="password"
-                          minLength={8}
-                          maxLength={authMode === "register" ? 72 : undefined}
-                          pattern={authMode === "register" ? "(?=.*[A-Z])(?=.*[0-9])(?=.*[^a-zA-Z0-9]).{8,72}" : undefined}
-                          title={authMode === "register" ? REGISTRATION_PASSWORD_HINT : undefined}
-                          aria-describedby={authMode === "register" ? "registration-password-hint" : undefined}
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          autoComplete={
-                            authMode === "login"
-                              ? "current-password"
-                              : "new-password"
-                          }
-                        />
-                      </label>
-                      {authMode === "register" && (
-                        <small id="registration-password-hint">{REGISTRATION_PASSWORD_HINT}</small>
-                      )}
-                      <button className="primary" disabled={busy || (!!active && !needsLogin)}>
-                        {busy
-                          ? "Đang kết nối…"
-                          : authMode === "login"
-                            ? "Đăng nhập →"
-                            : "Tạo tài khoản →"}
-                      </button>
-                      {active && !needsLogin && (
-                        <p>
-                          Hãy lưu phiên khách hiện tại trước khi đổi sang tài
-                          khoản.
-                        </p>
-                      )}
-                    </form>
+                    <AuthForm
+                      busy={busy}
+                      blocked={!!active && !needsLogin}
+                      disableRegistration={!!active}
+                      lockedEmail={needsLogin && active && user ? user.email : undefined}
+                      onAuthenticate={({ email, password, name }) => run(async () => {
+                        await login(email, password, name);
+                        go("station");
+                      })}
+                      onContinue={() => go("station")}
+                    />
                   )}
                   <div className="info-box">
                     <h3>Dữ liệu và quyền riêng tư</h3>

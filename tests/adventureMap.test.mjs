@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { createServer } from "vite";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
@@ -24,7 +25,7 @@ let TopDownMap;
 test.before(async () => {
   vite = await createServer({
     configFile: resolve(projectRoot, "vite.config.ts"),
-    cacheDir: resolve(projectRoot, "node_modules/.vite-map-tests"),
+    cacheDir: resolve(tmpdir(), "viendu-v3-scene-tests", "map"),
     appType: "custom",
     logLevel: "silent",
     server: { middlewareMode: true },
@@ -75,6 +76,22 @@ test("map railway layers share one continuous route and unopened station names s
   assert.match(rails[0][1], /^M35 505 L350 505/u);
   assert.match(markup, /Ga Khởi đầu/u);
   assert.doesNotMatch(markup, /Đồng cỏ Gió|Rừng Sương mù|Đèo Ánh sao|Thành phố Bình minh/u);
+});
+
+test("overview scenery uses overhead rooftops, canopies, ridge contours, and unlocked station footprints", () => {
+  const markup = renderToStaticMarkup(
+    React.createElement(TopDownMap, {
+      journey: { branch: "mountain", station: 0, remaining: 0, threshold: 1800 },
+      carriages: [{ id: "guest", name: "Toa Mây", color: "#398575" }],
+      ownId: "guest",
+    }),
+  );
+
+  assert.match(markup, /class="map-scenery map-scenery--overview"/u);
+  assert.match(markup, /overhead-tree-canopy/u);
+  assert.match(markup, /overhead-roof/u);
+  assert.match(markup, /overhead-ridge-contour/u);
+  assert.equal([...markup.matchAll(/class="overhead-station-footprint"/gu)].length, 1);
 });
 
 test("fog uses billowed noise density, bright soft wisps, and irregular reveal openings", () => {

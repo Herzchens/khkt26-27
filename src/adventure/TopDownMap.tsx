@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { mapGeometry, stopIndices as stops } from "./mapGeometry";
+import { MapScenery, OverheadStationFootprint } from "./mapScenery";
 import { explorationProgress } from "./exploration";
 import { MapFog } from "./MapFog";
 import type { Journey } from "../../backend/src/adventure/domain";
@@ -13,6 +14,7 @@ const names = [
   "Đèo Ánh sao",
   "Thành phố Bình minh",
 ];
+const stationRoofColors = ["#82a179", "#d8a552", "#718f9c", "#d8875e", "#d57064"];
 
 export function TopDownMap({
   journey,
@@ -58,7 +60,7 @@ export function TopDownMap({
     const frame = requestAnimationFrame(() => {
       element.scrollTo({
         left: initialTrain.current.x / 1100 * element.scrollWidth - element.clientWidth / 2,
-        top: initialTrain.current.y / 650 * (element.querySelector("svg")?.clientHeight ?? 0) - element.clientHeight * 0.65,
+        top: initialTrain.current.y / 650 * (element.querySelector("svg")?.clientHeight ?? 0) - element.clientHeight / 2,
         behavior: "auto",
       });
     });
@@ -184,66 +186,7 @@ export function TopDownMap({
               <path d="M287 423 Q337 399 384 410 T431 401" fill="none" stroke="#c6e8d1" strokeWidth="3" strokeLinecap="round" opacity=".85" />
             </g>
           )}
-          <g className="map-woodland" aria-hidden="true">
-            {[
-              [115, 140, 1], [170, 165, 0.88], [140, 220, 0.95], [220, 95, 0.82],
-              [520, 75, 0.82], [570, 92, 0.72], [630, 62, 0.86], [685, 85, 0.75], [725, 105, 0.72],
-              [410, 215, 0.82], [455, 230, 0.76], [590, 220, 0.78], [665, 265, 0.9], [720, 365, 0.85],
-              [740, 580, 0.85], [665, 600, 0.9], [195, 410, 0.92], [245, 385, 0.78], [130, 560, 0.82],
-              [565, 505, 0.72], [875, 544, 0.75], [835, 116, 0.68], [57, 198, 0.75], [770, 220, 0.68],
-            ].map(([x, y], i) => (
-              <g key={i} transform={`translate(${x} ${y}) scale(${(i % 2 ? 0.9 : 1) * (y > 520 ? 0.88 : 1)})`}>
-                <ellipse cx="3" cy="24" rx="29" ry="13" fill="#527b52" opacity=".19" />
-                <path d="M-7 13h14v18H-7Z" fill="#9b714d" />
-                <circle r={i % 3 ? 24 : 29} fill={`url(#${id}-leaf)`} stroke="#477e5f" strokeWidth="3" />
-                <circle cx="-15" cy="5" r="15" fill="#82b66f" stroke="#5d9969" strokeWidth="2" />
-                <circle cx="13" cy="7" r="16" fill={i % 2 ? "#72a96d" : "#5c9b70"} stroke="#4b8764" strokeWidth="2" />
-                <ellipse cx="-7" cy="-9" rx="10" ry="6" fill="#d0e49a" opacity=".62" />
-              </g>
-            ))}
-          </g>
-          <g className="map-mountains" aria-hidden="true">
-            {[
-              [125, 335, 1], [190, 310, 0.78], [95, 285, 0.72], [220, 365, 0.58],
-            ].map(([x, y], i) => (
-              <g key={i} transform={`translate(${x} ${y}) scale(${[1, 0.9, 0.84, 1][i]})`}>
-                <path d="M-54 34 Q-43 11-26 6 Q-7-48 7-50 Q27-18 36 3 Q51 10 56 34Z" fill="#829b87" stroke="#617f73" strokeWidth="4" strokeLinejoin="round" />
-                <path d="M-10-19 Q1-50 7-50 Q21-26 28-12 Q14-21 7-9 Q0-20-10-19Z" fill="#fff4d5" stroke="#d9e2ca" strokeWidth="2" strokeLinejoin="round" />
-                <path d="M-38 22 Q-11 13 10 22 T42 21" fill="none" stroke="#abc59d" strokeWidth="3" strokeLinecap="round" opacity=".85" />
-              </g>
-            ))}
-          </g>
-          <g className="map-landmarks" aria-hidden="true">
-            {[
-              [220, 455, "#d4885c"], [870, 363, "#dfac5a"], [700, 88, "#8d9cba"],
-              [178, 196, "#77a786"], [1016, 265, "#d57064"],
-            ].map(([x, y], i) => (
-              <g key={i} transform={`translate(${x} ${y})`}>
-                <ellipse cx="2" cy="24" rx="36" ry="11" fill="#536c4d" opacity=".2" />
-                <rect x="-29" y="-13" width="58" height="39" rx="7" fill="#fff0c9" stroke="#85664e" strokeWidth="3" />
-                <path d="M-35-11 0-38 35-11Z" fill={String(["#d4885c", "#dfac5a", "#8d9cba", "#77a786", "#d57064"][i])} stroke="#805d48" strokeWidth="3" strokeLinejoin="round" />
-                <rect x="-8" y="3" width="16" height="23" rx="5" fill="#9a7051" />
-                <rect x="-22" y="-4" width="10" height="10" rx="2" fill="#81c0bd" stroke="#638b77" strokeWidth="2" />
-                <rect x="12" y="-4" width="10" height="10" rx="2" fill="#81c0bd" stroke="#638b77" strokeWidth="2" />
-                <circle cx="23" cy="-26" r="7" fill="#fff4d6" stroke="#805d48" strokeWidth="2" />
-              </g>
-            ))}
-          </g>
-          <g className="map-flower-meadow" aria-hidden="true">
-            {Array.from({ length: 25 }, (_, i) => (
-              <g
-                key={i}
-                transform={`translate(${54 + i * 39} ${584 + (i % 3) * 14})`}
-              >
-                <ellipse cy="8" rx="2" ry="8" fill="#699766" />
-                <circle cy="-3" r="3.5" fill={i % 2 ? "#e8a19a" : "#fff3c8"} />
-                <circle cx="-4" cy="1" r="3.2" fill={i % 2 ? "#e8a19a" : "#fff3c8"} />
-                <circle cx="4" cy="1" r="3.2" fill={i % 2 ? "#e8a19a" : "#fff3c8"} />
-                <circle cy="4" r="3.1" fill={i % 2 ? "#e8a19a" : "#fff3c8"} />
-                <circle r="1.7" fill="#d6aa53" />
-              </g>
-            ))}
-          </g>
+          <MapScenery kind="overview" coast={coast} />
           <rect width="1100" height="650" rx="24" fill={`url(#${id}-paper-grain)`} opacity=".28" pointerEvents="none" />
           <g aria-hidden="true">
             {stage >= 4 && (
@@ -319,6 +262,12 @@ export function TopDownMap({
             const [x, y] = route[stop];
             return (
               <g key={stop} className="map-station-marker" aria-label={`${names[i]}: đã khám phá`}>
+                <OverheadStationFootprint
+                  x={x + 55}
+                  y={y - 35}
+                  scale={0.52}
+                  roofColor={stationRoofColors[i]}
+                />
                 <circle
                   cx={x}
                   cy={y}
