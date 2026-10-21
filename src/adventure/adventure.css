@@ -941,6 +941,7 @@ body,
   margin: 12px;
 }
 .focus-phase-label { text-align: center; color: #355e4a; font-size: 13px; font-weight: 700; margin: 0 20px 8px; }
+.summary-arrival { max-width: 1000px; margin: 0 auto 24px; }
 .focus-next { text-align: center; color: #355e4a; font-size: 13px; margin: 10px 20px; line-height: 1.6; }
 .focus-plan-total { text-align: center; margin: 12px 24px 16px; padding: 10px 14px; color: #355342; background: #e2eadd; border-radius: 10px; font-size: 12px; line-height: 1.6; }
 .focus-controls {

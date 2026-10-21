@@ -107,13 +107,17 @@
 .flip-clock-fold-top {
   top: 0;
   transform-origin: 50% 100%;
-  animation: flip-clock-top-out 0.38s ease-in both;
+  animation: flip-clock-top-out 0.18s ease-in both;
 }
 
 .flip-clock-fold-bottom {
   bottom: 0;
   transform-origin: 50% 0;
-  animation: flip-clock-bottom-in 0.38s ease-out both;
+  animation: flip-clock-bottom-in 0.18s ease-out both;
+}
+
+.flip-clock-fold-bottom > span {
+  top: -100%;
 }
 
 .flip-clock-unit {

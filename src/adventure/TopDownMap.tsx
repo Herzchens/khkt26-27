@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { mapGeometry, stopIndices as stops } from "./mapGeometry";
-import { cloudScaleAtProgress, explorationProgress } from "./exploration";
-import { CartoonCloud } from "./CartoonCloud";
+import { explorationProgress } from "./exploration";
+import { MapFog } from "./MapFog";
 import type { Journey } from "../../backend/src/adventure/domain";
 import "./fog.css";
 
@@ -314,31 +314,7 @@ export function TopDownMap({
             strokeLinecap="round"
             strokeLinejoin="round"
           />
-          <g
-            className="overhead-cloud-layer"
-            aria-hidden="true"
-            pointerEvents="none"
-          >
-            {clouds.map((cloud) => {
-              const scale = cloudScaleAtProgress(
-                exploration,
-                cloud.clearsAt,
-                0.02,
-              );
-              return (
-                <g
-                  key={cloud.id}
-                  transform={`translate(${cloud.x} ${cloud.y}) rotate(${cloud.angle})`}
-                >
-                  <CartoonCloud
-                    className="cartoon-cloud-shape map-cloud-shape"
-                    scale={1.32 * cloud.size * scale}
-                    variant={cloud.shape}
-                  />
-                </g>
-              );
-            })}
-          </g>
+          <MapFog id={id} clouds={clouds} progress={exploration} />
           {stops.slice(0, stage + 1).map((stop, i) => {
             const [x, y] = route[stop];
             return (

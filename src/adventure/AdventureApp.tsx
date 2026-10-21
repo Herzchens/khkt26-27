@@ -10,6 +10,7 @@ import { FlipClock } from "./FlipClock";
 import { studyGuideDownload, studyGuideSource, type StudyGuideDraft } from "./studyGuide";
 import { useStudyFullscreen } from "./useStudyFullscreen";
 import { JourneyView } from "./JourneyView";
+import { TopDownScene } from "./TopDownScene";
 import { detectDeviceCategory } from "./device";
 import { explorationProgress } from "./exploration";
 import type { MaterialExtractionProgress } from "./materialExtraction";
@@ -34,7 +35,7 @@ import {
   tick,
   type ActiveTrip,
 } from "./focus";
-import { isValidBreakPlan } from "../../backend/src/adventure/domain";
+import { isValidBreakPlan, studyElapsedSeconds } from "../../backend/src/adventure/domain";
 import { emptySaved, readSaved, writeSaved, type Saved } from "./storage";
 import { updateQuizDrafts, type QuizDraft, type QuizQuestion } from "./quizDrafts";
 import { analyzeSession, knowledgeGaps, reviewPlan } from "./learning";
@@ -460,6 +461,9 @@ function AdventureWorkspace() {
     : view === "summary"
       ? sessions.find((session) => session.id === saved.summarySessionId) ?? null
       : null;
+  const summaryCompleted = Boolean(summarySession && studyElapsedSeconds(
+    summarySession.started, summarySession.target, summarySession.breakPlan, summarySession.ended,
+  ) >= summarySession.target);
   const minutesTotal = Math.floor((carriage?.seconds ?? 0) / 60);
   const go = (next: string) => {
     if (next === "focus" && current.current.active) studyFullscreen.request();
@@ -1904,6 +1908,25 @@ function AdventureWorkspace() {
                       title="Thêm một chặng đường đáng nhớ."
                       text={summarySession.goal}
                     />
+                    <div className="summary-arrival">
+                      <TopDownScene
+                        carriages={[{
+                          id: owner,
+                          name: carriage?.name ?? "Toa của bạn",
+                          color: carriage?.color ?? "#398575",
+                        }]}
+                        ownId={owner}
+                        running={false}
+                        fogStrength={0}
+                        motionAllowed={false}
+                        arrival={{
+                          label: summaryCompleted
+                            ? "Đã đến ga cuối của chuyến học."
+                            : "Chuyến dừng sớm · thành quả vẫn được giữ.",
+                          completed: summaryCompleted,
+                        }}
+                      />
+                    </div>
                     <div className="stat-row summary-stats">
                       <Stat
                         icon="◷"

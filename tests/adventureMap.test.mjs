@@ -6,6 +6,13 @@ import { createServer } from "vite";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { mapGeometry, stopIndices } from "../src/adventure/mapGeometry.ts";
+import {
+  mapFogApertureScale,
+  mapFogBlobPath,
+  mapFogBlobPoints,
+  mapFogMotionShouldRun,
+} from "../src/adventure/mapFogGeometry.ts";
+import * as mapFogGeometry from "../src/adventure/mapFogGeometry.ts";
 import { studyTopics } from "../backend/src/adventure/topics.ts";
 
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -68,7 +75,7 @@ test("map railway layers share one continuous route and unopened station names s
   assert.doesNotMatch(markup, /Đồng cỏ Gió|Rừng Sương mù|Đèo Ánh sao|Thành phố Bình minh/u);
 });
 
-test("the map keeps every unexplored cloud an opaque rendered layer", () => {
+test("one opaque mist cover hides unrevealed map under a soft aperture mask", () => {
   const markup = renderToStaticMarkup(
     React.createElement(TopDownMap, {
       journey: { branch: "coast", station: 0, remaining: 0, threshold: 1800 },
@@ -76,12 +83,63 @@ test("the map keeps every unexplored cloud an opaque rendered layer", () => {
       ownId: "guest",
     }),
   );
-  const opaqueClouds = [...markup.matchAll(/<path class="cartoon-cloud-body"[^>]*fill-opacity="1"/gu)];
-
-  assert.equal(opaqueClouds.length, 63);
+  assert.match(markup, /class="map-fog-cover"[^>]*mask="url\(#.+-apertures\)"/u);
+  assert.match(markup, /class="map-fog-layer"/u);
+  assert.doesNotMatch(markup, /cartoon-cloud-body|map-cloud-shape/u);
+  assert.match(markup, /map-fog-wisp/u);
+  assert.match(markup, /<radialGradient[^>]*r="50%"[^>]*>[\s\S]*?<stop offset="100%" stop-color="#000" stop-opacity="0"/u);
+  assert.match(markup, /stop-color="#000" stop-opacity="1"/u);
+  assert.match(markup, /filterUnits="objectBoundingBox"/u);
+  assert.equal([...markup.matchAll(/<path filter="url\(#[^"]+-mist-blur\)"/gu)].length, 3);
 });
 
-test("opaque cloud grid covers both branches and reveals progressively", () => {
+test("fog apertures are deterministic and reveal only inside each node's approach window", () => {
+  assert.equal(mapFogApertureScale(0.2, 0.5), 0);
+  assert.ok(Math.abs(mapFogApertureScale(0.49, 0.5) - 0.5) < 1e-12);
+  assert.equal(mapFogApertureScale(0.5, 0.5), 1);
+  assert.equal(mapFogApertureScale(0.9, 0.5), 1);
+  assert.equal(mapFogApertureScale(Number.NaN, 0.5), 0);
+
+  const first = mapFogBlobPoints("5-3");
+  assert.deepEqual(mapFogBlobPoints("5-3"), first, "the same map node keeps the same edge shape");
+  assert.notDeepEqual(mapFogBlobPoints("5-3"), mapFogBlobPoints("5-4"));
+  assert.equal(first.length, 16);
+  assert.match(mapFogBlobPath("5-3"), /\bZ$/u);
+  for (const point of first) {
+    const radius = Math.hypot(point.x, point.y);
+    assert.ok(radius >= 0.86 && radius <= 1.15, "organic boundary stays within bounded radius");
+  }
+});
+
+test("fog motion pauses offscreen, when hidden, and for reduced motion", () => {
+  assert.equal(mapFogMotionShouldRun(true, true, false), true);
+  assert.equal(mapFogMotionShouldRun(false, true, false), false);
+  assert.equal(mapFogMotionShouldRun(true, false, false), false);
+  assert.equal(mapFogMotionShouldRun(true, true, true), false);
+});
+
+test("the final progress window fades the complete fog cover and clamps safely", () => {
+  const { mapFogLayerOpacity } = mapFogGeometry;
+  assert.equal(typeof mapFogLayerOpacity, "function", "fog coverage exposes a completion fade helper");
+  assert.equal(mapFogLayerOpacity(0), 1);
+  assert.equal(mapFogLayerOpacity(-1), 1);
+  assert.equal(mapFogLayerOpacity(0.98), 1);
+  assert.ok(Math.abs(mapFogLayerOpacity(0.99) - 0.5) < 1e-12);
+  assert.equal(mapFogLayerOpacity(1), 0);
+  assert.equal(mapFogLayerOpacity(2), 0);
+  assert.equal(mapFogLayerOpacity(Number.NaN), 1);
+
+  const markup = renderToStaticMarkup(
+    React.createElement(TopDownMap, {
+      journey: { branch: "mountain", station: 4, remaining: 0, threshold: 1800 },
+      carriages: [{ id: "guest", name: "Toa Mây", color: "#398575" }],
+      ownId: "guest",
+    }),
+  );
+  assert.match(markup, /class="map-fog-layer"[^>]*style="opacity:0"/u);
+});
+
+test("fog reveal nodes cover both branches and reveal progressively", () => {
   for (const branch of ["mountain", "coast"]) {
     const geometry = mapGeometry(branch);
     assert.equal(geometry.clouds.length, 63);
@@ -90,6 +148,7 @@ test("opaque cloud grid covers both branches and reveals progressively", () => {
       assert.ok(cloud.x >= -65 && cloud.x <= 1185);
       assert.ok(cloud.y >= -49 && cloud.y <= 619);
       assert.ok(cloud.clearsAt >= 0 && cloud.clearsAt <= 1);
+      assert.equal(mapFogApertureScale(1, cloud.clearsAt), 1, "every reveal node is open at completion");
     }
     const startTail = geometry.clouds.find((cloud) => cloud.row === 5 && cloud.column === 0);
     const startStation = geometry.clouds.find((cloud) => cloud.row === 5 && cloud.column === 3);

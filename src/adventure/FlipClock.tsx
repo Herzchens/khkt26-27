@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { advanceFlipDigit, finishFlipDigit, splitClockTime } from "./flipClockModel";
+import {
+  advanceFlipDigit,
+  finishFlipDigit,
+  finishFlipTop,
+  flipDigitFaces,
+  splitClockTime,
+  type FlipDigitState,
+} from "./flipClockModel";
 import "./flipClock.css";
 
 type FlipDigitProps = {
@@ -8,35 +15,48 @@ type FlipDigitProps = {
 };
 
 function FlipDigit({ value, motionAllowed }: FlipDigitProps) {
-  const [state, setState] = useState(() => ({ current: value, previous: null as string | null }));
-  useEffect(() => {
-    setState((current) => advanceFlipDigit(current, value, motionAllowed));
-  }, [motionAllowed, value]);
-
-  const displayed = state.current === value
-    ? state
-    : advanceFlipDigit(state, value, motionAllowed);
-  const showFlip = motionAllowed && displayed.previous !== null;
+  const [state, setState] = useState<FlipDigitState>(() => ({
+    current: value,
+    previous: null,
+    phase: "idle",
+    transitionId: 0,
+  }));
+  const displayed = advanceFlipDigit(state, value, motionAllowed);
+  if (displayed !== state) setState(displayed);
+  const faces = flipDigitFaces(displayed);
 
   return (
     <span className="flip-clock-digit" data-digit={value}>
-      <span className="flip-clock-half flip-clock-upper"><span>{displayed.current}</span></span>
-      <span className="flip-clock-half flip-clock-lower"><span>{displayed.current}</span></span>
-      {showFlip && (
-        <span className="flip-clock-flipper" aria-hidden="true">
-          <span className="flip-clock-half flip-clock-fold-top"><span>{displayed.previous}</span></span>
-          <span
-            className="flip-clock-half flip-clock-fold-bottom"
-            data-value={displayed.current}
-            onAnimationEnd={(event) => {
-              if (event.animationName === "flip-clock-bottom-in") {
-                const finishedValue = event.currentTarget.dataset.value ?? value;
-                setState((current) => finishFlipDigit(current, finishedValue));
-              }
-            }}
-          >
-            <span>{displayed.current}</span>
-          </span>
+      <span className="flip-clock-half flip-clock-upper"><span>{faces.upper}</span></span>
+      <span className="flip-clock-half flip-clock-lower"><span>{faces.lower}</span></span>
+      {(faces.topFlap !== null || faces.bottomFlap !== null) && (
+        <span className="flip-clock-flipper" aria-hidden="true" key={displayed.transitionId}>
+          {faces.topFlap !== null && (
+            <span
+              className="flip-clock-half flip-clock-fold-top"
+              data-transition-id={displayed.transitionId}
+              onAnimationEnd={(event) => {
+                if (event.animationName !== "flip-clock-top-out") return;
+                const transitionId = Number(event.currentTarget.dataset.transitionId);
+                setState((current) => finishFlipTop(current, transitionId));
+              }}
+            >
+              <span>{faces.topFlap}</span>
+            </span>
+          )}
+          {faces.bottomFlap !== null && (
+            <span
+              className="flip-clock-half flip-clock-fold-bottom"
+              data-transition-id={displayed.transitionId}
+              onAnimationEnd={(event) => {
+                if (event.animationName !== "flip-clock-bottom-in") return;
+                const transitionId = Number(event.currentTarget.dataset.transitionId);
+                setState((current) => finishFlipDigit(current, transitionId));
+              }}
+            >
+              <span>{faces.bottomFlap}</span>
+            </span>
+          )}
         </span>
       )}
     </span>

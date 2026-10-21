@@ -2,6 +2,12 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { AnimationEvent, CSSProperties } from "react";
 import {
   completeSceneStopMotion,
+  SCENE_ARRIVAL_STATION_X,
+  SCENE_REST_STATION_X,
+  SCENE_TRAIN_ARRIVAL_X,
+  sceneTrainScale,
+  sceneTrainLayout,
+  sceneViewBoxForZoom,
   sceneRestStopForPhase,
   transitionSceneStop,
   type SceneRestStop,
@@ -11,6 +17,40 @@ import "./fog.css";
 import "./travelScene.css";
 
 type Carriage = { id: string; name: string; color: string };
+type SceneArrival = { label: string; completed: boolean };
+
+function SceneStation({
+  centerX,
+  kind,
+  title,
+  detail,
+  accessibleLabel,
+}: {
+  centerX: number;
+  kind: "rest" | "arrival";
+  title: string;
+  detail: string;
+  accessibleLabel: string;
+}) {
+  return (
+    <g
+      className={kind === "rest" ? "travel-rest-stop" : "travel-arrival-stop"}
+      transform={`translate(${centerX} 0)`}
+      data-station-x={centerX}
+      role="img"
+      aria-label={accessibleLabel}
+    >
+      <ellipse cx="0" cy="286" rx="105" ry="12" fill="#507651" opacity=".15" />
+      <path d="M-90 269q4-12 17-12h146q13 0 17 12v13H-90Z" fill="#e7d5a8" stroke="#846e4c" strokeWidth="3" />
+      <path d="M-75 265h150" stroke="#fff5d9" strokeWidth="3" strokeLinecap="round" />
+      <rect x="33" y="253" width="8" height="32" rx="3" fill="#956d4d" />
+      <path d="M-39 233q0-5 6-5h66q6 0 6 5v19h-78Z" fill="#fff3cc" stroke="#8a6848" strokeWidth="3" />
+      <path d="M-43 233q39-22 79 0" fill="#d8875e" stroke="#8a6848" strokeWidth="3" strokeLinejoin="round" />
+      <text x="0" y="240" textAnchor="middle" fill="#4c664a" fontSize={kind === "rest" ? 8 : 7} fontWeight="900">{title}</text>
+      <text x="0" y="249" textAnchor="middle" fill="#8c7251" fontSize="7" fontWeight="700">{detail}</text>
+    </g>
+  );
+}
 
 const sceneTrees = [
   [82, 148, 0.7], [228, 179, 0.62], [350, 143, 0.75], [527, 177, 0.65],
@@ -31,6 +71,7 @@ export function TopDownScene({
   exploration = 0,
   coast = false,
   restStop = null,
+  arrival = null,
   motionAllowed = true,
 }: {
   carriages: Carriage[];
@@ -40,6 +81,7 @@ export function TopDownScene({
   exploration?: number;
   coast?: boolean;
   restStop?: SceneRestStop | null;
+  arrival?: SceneArrival | null;
   motionAllowed?: boolean;
 }) {
   const id = useId().replace(/[^a-zA-Z0-9_-]/g, "");
@@ -92,10 +134,20 @@ export function TopDownScene({
     else if (previousIndex !== null && !sceneMotionAllowed) previousRestStop.current = null;
   }, [restIndex, restCount, sceneMotionAllowed]);
   const engineX = 450 + carriages.length * 32;
-  const restShift = 750 - engineX;
+  const { travelX, travelShift, restShift, arrivalShift } = sceneTrainLayout(engineX, carriages.length);
+  const viewBox = sceneViewBoxForZoom(zoom, Boolean(arrival));
+  const viewBoxLeft = Number(viewBox.split(" ", 1)[0]);
+  const trainScale = sceneTrainScale(
+    carriages.length,
+    arrival ? SCENE_TRAIN_ARRIVAL_X : travelX,
+    viewBoxLeft,
+  );
   const chosen = carriages.find((car) => car.id === selected) ?? carriages[0];
-  const moving = running && sceneMotionAllowed;
-  const sceneStatus = stopPhase === "arriving"
+  const moving = !arrival && running && sceneMotionAllowed;
+  const arrivalLabel = arrival?.label.trim() || (arrival?.completed ? "Đã đến ga cuối." : "Chuyến đã dừng.");
+  const sceneStatus = arrival
+    ? arrivalLabel
+    : stopPhase === "arriving"
     ? "tàu đang vào trạm nghỉ"
     : stopPhase === "parked" && restStop
       ? `tàu đang dừng tại trạm nghỉ ${restStop.index} / ${restStop.count}`
@@ -104,7 +156,8 @@ export function TopDownScene({
         : moving
           ? "cảnh vật đang trôi quanh tàu"
           : "cảnh vật đang dừng";
-  const visibleRestStop = sceneRestStopForPhase(restStop, previousRestStop.current, stopPhase);
+  const visibleRestStop = arrival ? null : sceneRestStopForPhase(restStop, previousRestStop.current, stopPhase);
+  const renderedStopPhase = arrival ? "arrived" : stopPhase;
   const finishStopMotion = (event: AnimationEvent<SVGGElement>) => {
     if (event.animationName === "travel-stop-arrive" || event.animationName === "travel-stop-depart") {
       setStopPhase((phase) => completeSceneStopMotion(phase));
@@ -116,11 +169,13 @@ export function TopDownScene({
     <section
       ref={element}
       className="travel-scene"
-      aria-label="Cảnh tàu 2D nhìn thẳng từ trên xuống"
+      aria-label={arrival ? `Cảnh kết thúc: ${arrivalLabel}` : "Cảnh tàu 2D nhìn thẳng từ trên xuống"}
       data-moving={moving}
-      data-stop-phase={stopPhase}
-      data-rest-index={visibleRestStop?.index}
-      data-stop-motion={sceneMotionAllowed}
+      data-stop-phase={renderedStopPhase}
+      data-rest-index={arrival ? undefined : visibleRestStop?.index}
+      data-stop-motion={arrival ? false : sceneMotionAllowed}
+      data-arrival={arrival ? "true" : undefined}
+      data-arrival-complete={arrival ? arrival.completed : undefined}
     >
       <div className="travel-toolbar">
         <span>{sceneStatus.charAt(0).toUpperCase() + sceneStatus.slice(1)}</span>
@@ -136,9 +191,11 @@ export function TopDownScene({
       </div>
       <svg
         className="travel-world"
-        viewBox={`${450 - 450 / zoom} ${210 - 210 / zoom} ${900 / zoom} ${420 / zoom}`}
+        viewBox={viewBox}
         role="group"
-        aria-label={`Góc nhìn 2D: ${carriages.length} toa, ${sceneStatus}`}
+        aria-label={arrival
+          ? `Điểm kết thúc ${arrival.completed ? "ga cuối" : "điểm dừng"}: ${arrivalLabel}`
+          : `Góc nhìn 2D: ${carriages.length} toa, ${sceneStatus}`}
       >
         <defs>
           <linearGradient id={`${id}-sky`} x1="0" y1="0" x2="0" y2="1">
@@ -218,25 +275,40 @@ export function TopDownScene({
         <path d="M0 194 H900 M0 226 H900" stroke="#5b6260" strokeWidth="7" />
         <path d="M0 193 H900 M0 227 H900" stroke="#eee1bd" strokeWidth="2.5" />
         {visibleRestStop && (
-          <g className="travel-rest-stop" role="img" aria-label={`Trạm nghỉ ${visibleRestStop.index} / ${visibleRestStop.count}`}>
-            <ellipse cx="750" cy="286" rx="105" ry="12" fill="#507651" opacity=".15" />
-            <path d="M660 269q4-12 17-12h144q13 0 17 12v13H660Z" fill="#e7d5a8" stroke="#846e4c" strokeWidth="3" />
-            <path d="M674 265h149" stroke="#fff5d9" strokeWidth="3" strokeLinecap="round" />
-            <rect x="815" y="253" width="8" height="32" rx="3" fill="#956d4d" />
-            <path d="M784 241q0-5 6-5h59q6 0 6 5v19h-71Z" fill="#fff3cc" stroke="#8a6848" strokeWidth="3" />
-            <path d="M780 241q39-22 79 0" fill="#d8875e" stroke="#8a6848" strokeWidth="3" strokeLinejoin="round" />
-            <text x="819" y="253" textAnchor="middle" fill="#4c664a" fontSize="8" fontWeight="900">TRẠM NGHỈ</text>
-            <text x="819" y="263" textAnchor="middle" fill="#8c7251" fontSize="7" fontWeight="700">{visibleRestStop.index}/{visibleRestStop.count}</text>
-          </g>
+          <SceneStation
+            centerX={SCENE_REST_STATION_X}
+            kind="rest"
+            title="TRẠM NGHỈ"
+            detail={`${visibleRestStop.index}/${visibleRestStop.count}`}
+            accessibleLabel={`Trạm nghỉ ${visibleRestStop.index} / ${visibleRestStop.count}`}
+          />
+        )}
+        {arrival && (
+          <SceneStation
+            centerX={SCENE_ARRIVAL_STATION_X}
+            kind="arrival"
+            title={arrival.completed ? "GA CUỐI" : "ĐIỂM DỪNG"}
+            detail={arrival.completed ? "ĐÃ HOÀN THÀNH" : "KẾT THÚC SỚM"}
+            accessibleLabel={`${arrival.completed ? "Ga cuối" : "Điểm dừng cuối"}: ${arrivalLabel}`}
+          />
         )}
         <g className="travel-train-motion">
           <g
             className="travel-train-position"
-            data-stop-phase={stopPhase}
-            style={{ "--rest-shift": `${restShift}px` } as CSSProperties}
+            data-stop-phase={renderedStopPhase}
+            style={{
+              "--travel-shift": `${travelShift}px`,
+              "--rest-shift": `${restShift}px`,
+              "--arrival-shift": `${arrivalShift}px`,
+            } as CSSProperties}
             onAnimationEnd={finishStopMotion}
           >
-          <g className="travel-train" aria-label="Đoàn tàu nhìn từ trên xuống">
+          <g
+            className="travel-train"
+            aria-label="Đoàn tàu nhìn từ trên xuống"
+            transform={`translate(${engineX} 210) scale(${trainScale}) translate(${-engineX} -210)`}
+            data-train-scale={trainScale}
+          >
             <g transform={`translate(${engineX} 210)`} aria-label="Đầu tàu">
               <ellipse cx="3" cy="17" rx="44" ry="21" fill="#385f4b" opacity=".27" />
               <g transform="translate(-16 19)">
@@ -309,7 +381,9 @@ export function TopDownScene({
       <div className="travel-caption">
         <span>{chosen?.name} · {carriages.length} toa</span>
         <span>
-          {fogStrength > 0.25
+          {arrival
+            ? arrivalLabel
+            : fogStrength > 0.25
             ? "☁ Toa đang chờ bạn quay lại"
             : exploration >= 1
               ? "Đã khám phá toàn tuyến"

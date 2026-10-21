@@ -3,6 +3,56 @@
   pointer-events: none;
 }
 
+.map-fog-layer,
+.map-fog-wisps {
+  pointer-events: none;
+}
+
+.map-fog-cover {
+  opacity: 1;
+}
+
+.map-fog-flow {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.map-fog-flow > path {
+  fill: none;
+  stroke: #f7fcfc;
+  stroke-width: 82px;
+  stroke-linecap: round;
+  opacity: .2;
+}
+
+.map-fog-flow--slow > path:nth-child(2) {
+  stroke: #a8c1ca;
+  stroke-width: 104px;
+  opacity: .13;
+}
+
+.map-fog-flow--quick > path {
+  stroke: #fff;
+  stroke-width: 38px;
+  opacity: .24;
+}
+
+.map-fog-flow--slow.is-active {
+  animation: map-fog-drift-slow 74s ease-in-out infinite alternate;
+}
+
+.map-fog-flow--quick.is-active {
+  animation: map-fog-drift-quick 51s ease-in-out infinite alternate;
+}
+
+@keyframes map-fog-drift-slow {
+  to { transform: translate(30px, -15px); }
+}
+
+@keyframes map-fog-drift-quick {
+  to { transform: translate(-23px, 12px); }
+}
+
 .cartoon-cloud-shape {
   transform-box: fill-box;
   transform-origin: center;
@@ -126,5 +176,9 @@
 @media (prefers-reduced-motion: reduce) {
   .cartoon-cloud-shape {
     transition: none;
+  }
+
+  .map-fog-flow.is-active {
+    animation: none;
   }
 }
