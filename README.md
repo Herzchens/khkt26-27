@@ -1,6 +1,8 @@
 # Viễn Du
 
-Viễn Du is a web learning adventure with a cartoon 3D train journey, personal progress, asynchronous study groups, a journal, and optional quizzes. The browser app is the primary experience; Electron packages the same web app for Windows.
+Viễn Du is a web learning adventure with a cartoon 2D train journey, personal progress, asynchronous study groups, a journal, and optional quizzes. The browser app is the primary experience; Electron packages the same web app for Windows.
+
+Preparation uses a compact tear-off train ticket in Viễn Du's cream, green, and terracotta palette. Its anonymous trip code comes from the server before departure and matches the code in saved trip history. Starting or resuming from a button requests fullscreen; Escape leaves fullscreen, and the visible control can enable it again. Learning still works when fullscreen is unavailable or declined.
 
 ## Run locally
 
@@ -21,11 +23,13 @@ Each departure is counted once as a distraction; returning resumes immediately. 
 
 Import scanned PDFs or PNG/JPG/WebP/BMP images to recognize Vietnamese and English text with local OCR. Selectable PDF text is preserved; pages with little usable text are recognized individually. OCR workers, language data, and WebAssembly are bundled with the app and served from the same origin. Files are processed on the device; only the extracted study text is sent when the learner explicitly chooses AI questions. Progress and page indicators are shown during import. Cancelling, leaving the ticket, or switching accounts discards the unfinished import.
 
+Google AI Studio keys, including newer `AQ` authorization keys, use the existing Gemini backend integration. Set `GEMINI_API_KEY` in the ignored `backend/.env` for local development and restart the API. For hosting, set the secret in the backend service environment. Local OCR does not need this key; optional AI reading sends the selected file to Gemini only after the learner chooses **Đọc bằng AI**. Never add the key to a `VITE_*` variable.
+
 Imports allow 32 MiB per file, 10 files per trip, and 50,000 source characters. Images are limited to 20 megapixels. PDF reading is limited to 20 pages, with a 120-second local OCR budget per file; partial results identify the limit reached. Clear, upright scans give better recognition results. Unsupported or unreadable files still show their name and status.
 
 In **Tài liệu học tập**, select **Ưu tiên dùng AI để đọc PDF/ảnh** when the file contains scans, handwriting, or text that cannot be read locally, then explicitly choose **Đọc bằng AI** on the imported file. This sends that PDF or PNG/JPG/WebP image through the authenticated backend to Google Gemini. The original file is kept in browser memory and is not stored on the server. Long PDFs are read in groups of up to four pages with at most two groups in flight. AI reading reports missing or unclear pages; review and edit the transcription before confirming it. Local OCR and partial imports also require source review. Verified file sources are stored separately from personal notes, so clearing notes cannot replace the source with generic topic questions. Files whose sources are missing or unreviewed block question generation.
 
-The 2D journey map covers unexplored terrain and future stations with overlapping cartoon clouds. Clouds shrink as the train approaches; discovered regions remain clear. Rails stay continuous beneath the clouds. The timer keeps the train centered with moving scenery in both 2D and 3D. Personal trips preview active focus time and retain pending offline progress; group maps open terrain only after the server confirms the contribution and daily allowance. Time away and scheduled rest do not open new terrain. Unopened station names and stories remain hidden on the map.
+The 2D journey map covers unexplored terrain and future stations with overlapping cartoon clouds. Clouds shrink as the train approaches; discovered regions remain clear. Rails stay continuous beneath the clouds. The timer keeps the train centered with moving 2D scenery. Personal trips preview active focus time and retain pending offline progress; group maps open terrain only after the server confirms the contribution and daily allowance. Time away and scheduled rest do not open new terrain. Unopened station names and stories remain hidden on the map.
 
 Before starting, choose up to 10 **Trạm dừng chân**, each lasting 1–30 minutes. Breaks are spread evenly through the study time and start and end automatically. Their duration is added to the trip wall clock, excluded from focus quality and XP, and shown separately in the journal and public history. There is no arbitrary pause; leaving during study still counts as a distraction, while an absence wholly inside a scheduled break does not.
 

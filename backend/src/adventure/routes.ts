@@ -4,7 +4,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { ApiError } from "../errors.js";
 import { config } from "../config.js";
-import { experimentRecord } from "../experiments.js";
+import { experimentRecord, tripIdentity } from "../experiments.js";
 import { DEVICE_CATEGORIES, journey, person, settle, snapshot, type World } from "./domain.js";
 const hash = (value: string) =>
   createHash("sha256").update(value).digest("hex");
@@ -56,6 +56,18 @@ export function adventureRoutes(
       { timeout: 15000 },
     );
   const opts = { preHandler: authenticate };
+  app.post("/api/v1/adventure/trip-code", {
+    bodyLimit: 512,
+    config: { rateLimit: { max: 20, timeWindow: "1 minute" } },
+  }, async req => {
+    const { id } = z.object({ id: z.uuid() }).strict().parse(req.body);
+    const authenticated = req.headers.authorization !== undefined;
+    if (authenticated) await authenticate(req);
+    const owner = authenticated ? req.userId : `guest:${id}`;
+    // Preview only: the same identity is used when the session is later saved.
+    // Nothing is published and no progress is awarded by issuing this code.
+    return { tripCode: tripIdentity(owner, id, config.JWT_SECRET).tripCode };
+  });
   app.get("/api/v1/adventure", opts, (req) =>
     atomic((w) => snapshot(w, req.userId, Date.now())),
   );

@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useBrowserView } from "./navigation";
 import { useAuthStore } from "@/store/authStore";
 import { post, request, REGISTRATION_PASSWORD_HINT } from "@/services/api";
-import { Scene } from "./Scene";
+import { SceneFallback } from "./SceneFallback";
+import { BoardingTicket } from "./BoardingTicket";
+import { useStudyFullscreen } from "./useStudyFullscreen";
 import { JourneyView } from "./JourneyView";
 import { detectDeviceCategory } from "./device";
 import { explorationProgress } from "./exploration";
@@ -101,6 +103,7 @@ function AdventureWorkspace() {
   const workspaceLive = useRef(false);
   const [guestPublication, setGuestPublication] = useState<Record<string, GuestPublicationStatus>>({});
   const hasActiveTrip = Boolean(saved.active);
+  const studyFullscreen = useStudyFullscreen(view === "focus" && hasActiveTrip);
   const [loaded, setLoaded] = useState(false),
     [exclusive, setExclusive] = useState(false);
   const [storageError, setStorageError] = useState(false);
@@ -113,6 +116,21 @@ function AdventureWorkspace() {
   const [goal, setGoal] = useState(""),
     [topic, setTopic] = useState("biology"),
     [documentText, setDocumentText] = useState("");
+  const [draftTripId, setDraftTripId] = useState(() => crypto.randomUUID());
+  const [ticketCode, setTicketCode] = useState<{ id: string; value: string } | null>(null);
+  const ticketId = saved.active?.id ?? draftTripId;
+  const needsTicketCode = view === "ticket" || view === "focus";
+  useEffect(() => {
+    if (!needsTicketCode || !loaded || !exclusive || !online || needsLogin || ticketCode?.id === ticketId) return;
+    const controller = new AbortController();
+    void request<{ tripCode: string }>("/adventure/trip-code", {
+      method: "POST", body: JSON.stringify({ id: ticketId }), signal: controller.signal,
+    }, owner !== "guest").then((result) => {
+      if (!controller.signal.aborted && ownerRef.current === owner && workspaceLive.current && /^V-[A-F0-9]{12}$/.test(result.tripCode))
+        setTicketCode({ id: ticketId, value: result.tripCode });
+    }).catch(() => { /* Offline or unavailable code lookup must not prevent study. */ });
+    return () => controller.abort();
+  }, [needsTicketCode, ticketId, ticketCode, loaded, exclusive, online, needsLogin, owner]);
   const [sources, setSources] = useState<MaterialSource[]>([]);
   const originalFiles = useRef(new Map<string, File>());
   const [preferAiReading, setPreferAiReading] = useState(false);
@@ -438,6 +456,8 @@ function AdventureWorkspace() {
       : null;
   const minutesTotal = Math.floor((carriage?.seconds ?? 0) / 60);
   const go = (next: string) => {
+    if (next === "focus" && current.current.active) studyFullscreen.request();
+    else if (next !== "focus") studyFullscreen.leave();
     if (next !== "focus" && current.current.active)
       commit({ ...current.current, active: leaveFocusView(current.current.active, Date.now()) });
     setError("");
@@ -467,7 +487,7 @@ function AdventureWorkspace() {
       return;
     const at = Date.now();
     const trip: ActiveTrip = {
-      id: crypto.randomUUID(),
+      id: draftTripId,
       owner,
       goal: goal.trim(),
       topic,
@@ -485,6 +505,7 @@ function AdventureWorkspace() {
       reconnect: 0,
     };
     if (commit({ ...current.current, active: trip })) {
+      setDraftTripId(crypto.randomUUID());
       setSummary(null);
       go("focus");
     }
@@ -739,7 +760,7 @@ function AdventureWorkspace() {
     ? Math.min(100, (journey.remaining / journey.threshold) * 100)
     : 0;
   return (
-    <div className="adventure">
+    <div className="adventure" ref={studyFullscreen.ref}>
       <aside className="sidebar">
         <a
           className="brand"
@@ -909,7 +930,6 @@ function AdventureWorkspace() {
                         journey={journey}
                         carriages={trainCars}
                         ownId={owner}
-                        decor={carriage?.decor}
                       />
                       <div className="hero-caption">
                         <div>
@@ -1025,35 +1045,50 @@ function AdventureWorkspace() {
               {view === "ticket" && (
                 <>
                   <Heading
-                    kicker="TẤM VÉ CỦA BẠN"
-                    title="Bạn muốn đi đâu hôm nay?"
-                    text="Chọn một mục tiêu vừa sức. Bạn có thể kết thúc và lưu phần đã học."
+                    kicker="CHUẨN BỊ KHỞI HÀNH"
+                    title="Tấm vé cho chặng học của bạn"
+                    text="Kiểm tra lộ trình, mang theo tài liệu rồi lên tàu."
                   />
-                  <div className="two-columns">
+                  <BoardingTicket
+                    goal={goal}
+                    topicName={availableTopics.find((item) => item.id === topic)?.name ?? "Tự học"}
+                    minutes={minutes}
+                    breakCount={breakCount}
+                    breakMinutes={breakMinutes}
+                    station={stations[journey?.station ?? 0]}
+                    branch={journey?.branch}
+                    carriageName={carriage?.name ?? "Toa Mây"}
+                    mode={mode}
+                    tripCode={ticketCode?.id === ticketId ? ticketCode.value : undefined}
+                  />
+                  <div className="two-columns boarding-preparation">
                     <section className="panel form">
-                      <label>
-                        Mục tiêu học tập
-                        <textarea
-                          value={goal}
-                          maxLength={500}
-                          onChange={(e) => setGoal(e.target.value)}
-                          placeholder="Mình muốn hiểu điều gì sau chuyến này?"
-                        />
-                      </label>
-                      <label>
-                        Chủ đề
-                        <select
-                          value={topic}
-                          onChange={(e) => setTopic(e.target.value)}
-                        >
-                          {availableTopics.map((t) => (
-                            <option key={t.id} value={t.id}>
-                              {t.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <DurationPicker value={minutes} onChange={setMinutes} breakCount={breakCount} breakMinutes={breakMinutes} onBreakCountChange={setBreakCount} onBreakMinutesChange={setBreakMinutes} />
+                      <TicketEditor initiallyOpen={goal.trim().length < 3 || !Number.isInteger(minutes) || minutes < 1 || minutes > 240 || !validBreaks}>
+                        <label>
+                          Mục tiêu học tập
+                          <textarea
+                            value={goal}
+                            maxLength={500}
+                            onChange={(e) => setGoal(e.target.value)}
+                            placeholder="Mình muốn hiểu điều gì sau chuyến này?"
+                          />
+                        </label>
+                        <label>
+                          Chủ đề
+                          <select
+                            value={topic}
+                            onChange={(e) => setTopic(e.target.value)}
+                          >
+                            {availableTopics.map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {t.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <DurationPicker value={minutes} onChange={setMinutes} breakCount={breakCount} breakMinutes={breakMinutes} onBreakCountChange={setBreakCount} onBreakMinutesChange={setBreakMinutes} />
+                      </TicketEditor>
+                      <h2>Hành trang học tập</h2>
                       <label>
                         Ghi chú học tập (không bắt buộc)
                         <textarea
@@ -1072,7 +1107,7 @@ function AdventureWorkspace() {
                         <input type="checkbox" checked={preferAiReading} disabled={busy} onChange={(e) => setPreferAiReading(e.target.checked)} aria-describedby="material-ai-help" />
                         <span>Ưu tiên dùng AI để đọc PDF/ảnh</span>
                       </label>
-                      <p id="material-ai-help" className="material-hint">Chọn khi có ảnh quét, chữ viết tay hoặc tệp khó đọc. PDF/ảnh sẽ chờ bạn bấm “Đọc bằng AI” để gửi tới Google Gemini; cần đăng nhập. Để trống ô này nếu muốn đọc văn bản trên thiết bị trước.</p>
+                      <p id="material-ai-help" className="material-hint">Mặc định, ứng dụng đọc chữ ngay trên thiết bị và không gửi tệp lên Google. Với chữ viết tay hoặc bản quét khó đọc, chọn ô này để bỏ qua bước đọc trên máy; tệp chỉ được gửi tới Gemini khi bạn bấm “Đọc bằng AI”. Cần đăng nhập để dùng AI.</p>
                       <label className="file-label">
                         Chọn tệp tài liệu
                         <input
@@ -1111,8 +1146,8 @@ function AdventureWorkspace() {
                       </li>)}</ul>}
                     </section>
                     <section className="panel form">
-                      <div className="eyebrow">ĐIỂM ĐẾN</div>
-                      <h2>{stations[journey?.station ?? 0]}</h2>
+                      <div className="eyebrow">SẴN SÀNG LÊN TÀU</div>
+                      <h2>Chọn bạn đồng hành</h2>
                       <div className="choice-row">
                         <button
                           className={mode === "solo" ? "selected" : ""}
@@ -1133,8 +1168,30 @@ function AdventureWorkspace() {
                           ? "Đóng góp được máy chủ xác nhận sau phiên, tối đa 60 phút/ngày theo múi giờ đoàn."
                           : "Tiến độ được giữ trong hành trình cá nhân của bạn."}
                       </p>
-                      <div className="info-box">
-                        <h3>Hỗ trợ tập trung</h3>
+                      <p className="material-hint">Chuyến đã lưu sẽ công khai bản tóm tắt trong Lịch sử chuyến đi. Tài liệu và ghi chú được giữ riêng.</p>
+                      <button
+                        className="primary"
+                        disabled={
+                          busy ||
+                          !!active ||
+                          goal.trim().length < 3 ||
+                          !Number.isInteger(minutes) ||
+                          minutes < 1 ||
+                          minutes > 240 || !validBreaks ||
+                          !exclusive
+                        }
+                        onClick={start}
+                      >
+                        Bắt đầu chuyến ·{" "}
+                        {Number.isFinite(minutes) ? minutes : "…"} phút học →
+                      </button>
+                      {active && (
+                        <button onClick={() => go("focus")}>
+                          Tiếp tục phiên đang mở
+                        </button>
+                      )}
+                      <details className="info-box trip-rules">
+                        <summary>Quy tắc chuyến đi & quyền riêng tư</summary>
                         <p>Mọi chuyến đã lưu, kể cả chuyến kết thúc sớm, sẽ tự công khai trong Lịch sử chuyến đi:
                           mã ẩn danh, chủ đề, tóm tắt mục tiêu, thời gian, loại thiết bị, số lần xao nhãng và điểm quiz.
                           Email tài khoản, tài liệu, lời giải và chi tiết trả lời được giữ riêng.</p>
@@ -1152,28 +1209,7 @@ function AdventureWorkspace() {
                           Quiz là tùy chọn. Điểm thấp không trừ tiến độ của bạn
                           hoặc đoàn.
                         </p>
-                      </div>
-                      <button
-                        className="primary"
-                        disabled={
-                          busy ||
-                          !!active ||
-                          goal.trim().length < 3 ||
-                          !Number.isInteger(minutes) ||
-                          minutes < 1 ||
-                          minutes > 240 || !validBreaks ||
-                          !exclusive
-                        }
-                        onClick={start}
-                      >
-                        Bắt đầu chuyến ·{" "}
-                        {Number.isFinite(minutes) ? minutes : "…"} phút →
-                      </button>
-                      {active && (
-                        <button onClick={() => go("focus")}>
-                          Tiếp tục phiên đang mở
-                        </button>
-                      )}
+                      </details>
                     </section>
                   </div>
                 </>
@@ -1188,6 +1224,7 @@ function AdventureWorkspace() {
                           : "CHUYẾN CÁ NHÂN"}
                       </span>
                       <h1>{active.goal}</h1>
+                      {ticketCode?.id === active.id && <span className="pill">Mã chuyến {ticketCode.value}</span>}
                       <p>
                         {rest ? "Dừng chân một chút. Chuyến sẽ tự tiếp tục sau giải lao." : active.state === "away"
                           ? "Đồng hồ vẫn chạy. Khoảng thời gian bạn rời đi không được cộng vào thời gian học."
@@ -1221,7 +1258,6 @@ function AdventureWorkspace() {
                         {active.distractions ?? 0} LẦN XAO NHÃNG
                       </div>
                       <JourneyView
-                        initial="2d"
                         journey={
                           active.groupId && group?.id === active.groupId
                             ? group.journey
@@ -1239,9 +1275,7 @@ function AdventureWorkspace() {
                               ]
                         }
                         ownId={owner}
-                        decor={carriage?.decor}
                         fog={active.state === "away" && !rest}
-                        calm
                         draftSeconds={active.groupId ? 0 : focused(active)}
                         targetSeconds={active.target}
                         focusState={rest ? "break" : active.state}
@@ -1249,6 +1283,12 @@ function AdventureWorkspace() {
                       />
                       {active.groupId && <p className="overhead-hint">Bản đồ đoàn mở thêm vùng sau khi máy chủ xác nhận phần đóng góp của phiên này.</p>}
                       <div className="focus-controls">
+                        <div className="study-fullscreen-control">
+                          <button type="button" onClick={studyFullscreen.toggle} aria-pressed={studyFullscreen.isFullscreen} disabled={studyFullscreen.status === "pending" && !studyFullscreen.isFullscreen}>
+                            {studyFullscreen.isFullscreen ? "Thoát toàn màn hình" : "Toàn màn hình"}
+                          </button>
+                          {studyFullscreen.message && <span className="study-fullscreen-status" role="status">{studyFullscreen.message}</span>}
+                        </div>
                         {now < active.lastAt && <div className="info-box">
                           <p>Đồng hồ thiết bị đang chạy lùi. Hãy đặt lại giờ đúng để tiếp tục; dữ liệu phiên vẫn được giữ.</p>
                           <button onClick={exportData}>Xuất bản sao phiên học</button>
@@ -1299,11 +1339,9 @@ function AdventureWorkspace() {
                     </div>
                   )}
                   <JourneyView
-                    initial="2d"
                     journey={journey}
                     carriages={trainCars}
                     ownId={owner}
-                    decor={carriage?.decor}
                     draftSeconds={mapActive ? focused(mapActive) : 0}
                     targetSeconds={mapActive?.target}
                   />
@@ -1402,11 +1440,9 @@ function AdventureWorkspace() {
                     title={carriage?.name ?? "Toa của tôi"}
                     text="Toa tàu luôn đi cùng bạn, kể cả khi bạn chuyển hoặc rời đoàn."
                   />
-                  <Scene
+                  <SceneFallback
                     color={carriage?.color}
                     decor={carriage?.decor}
-                    station={journey?.station}
-                    branch={journey?.branch}
                   />
                   <div className="two-columns">
                     <section className="panel form">
@@ -2121,6 +2157,16 @@ function AdventureWorkspace() {
     </div>
   );
 }
+function TicketEditor({ initiallyOpen, children }: { initiallyOpen: boolean; children: ReactNode }) {
+  const [open, setOpen] = useState(initiallyOpen);
+  return (
+    <details className="ticket-editor" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary>Sửa vé · mục tiêu, chủ đề và thời gian</summary>
+      <div className="ticket-editor-fields">{children}</div>
+    </details>
+  );
+}
+
 function Heading({
   kicker,
   title,

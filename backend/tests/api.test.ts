@@ -130,6 +130,33 @@ beforeEach(async () => {
   await db.$executeRaw`UPDATE adventure_state SET state = '{"people":{},"groups":{},"sessions":{},"invites":{}}'::jsonb WHERE id = 1`;
 });
 
+it("previews the exact public trip code without saving or exposing another account's identity", async () => {
+  const id = randomUUID();
+  const before = await app.inject({ method: "GET", url: "/api/v1/experiments" });
+  const preview = await app.inject({ method: "POST", url: "/api/v1/adventure/trip-code", headers, payload: { id } });
+  expect(preview.statusCode).toBe(200);
+  expect(preview.json()).toEqual({ tripCode: expect.stringMatching(/^V-[A-F0-9]{12}$/) });
+  const other = await app.inject({ method: "POST", url: "/api/v1/adventure/trip-code", headers: stranger, payload: { id } });
+  expect(other.json().tripCode).not.toBe(preview.json().tripCode);
+  const after = await app.inject({ method: "GET", url: "/api/v1/experiments" });
+  expect(after.json().total).toBe(before.json().total);
+  const ended = Date.now() - 1000;
+  const payload = { id, groupId: null, goal: "Review the cell structure", topic: "biology", target: 60,
+    started: ended - 60000, ended, segments: [{ start: ended - 60000, end: ended, kind: "focus" }] };
+  expect((await app.inject({ method: "POST", url: "/api/v1/adventure/sessions", headers, payload })).statusCode).toBe(200);
+  const history = await app.inject({ method: "GET", url: "/api/v1/experiments" });
+  expect(history.json().runs.some((row: { tripCode: string }) => row.tripCode === preview.json().tripCode)).toBe(true);
+
+  const guestId = randomUUID();
+  const guest = await app.inject({ method: "POST", url: "/api/v1/adventure/trip-code", payload: { id: guestId } });
+  expect(guest.statusCode).toBe(200);
+  const published = await app.inject({ method: "POST", url: "/api/v1/adventure/guest-sessions", payload: { ...payload, id: guestId } });
+  expect(published.json().tripCode).toBe(guest.json().tripCode);
+  expect((await app.inject({ method: "POST", url: "/api/v1/adventure/trip-code", payload: { id, userId } })).statusCode).toBe(400);
+  expect((await app.inject({ method: "POST", url: "/api/v1/adventure/trip-code", payload: { id: "not-a-uuid" } })).statusCode).toBe(400);
+  expect((await app.inject({ method: "POST", url: "/api/v1/adventure/trip-code", headers: { authorization: "Bearer invalid" }, payload: { id } })).statusCode).toBe(401);
+});
+
 it("authenticates AI file reading, validates the upload and forwards caller cancellation", async () => {
   const payload = {mimeType: "application/pdf", data: Buffer.from("%PDF-1.7\nfixture").toString("base64")};
   vi.mocked(readMaterialDocument).mockClear();

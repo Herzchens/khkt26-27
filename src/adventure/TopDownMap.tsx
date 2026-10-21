@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { mapGeometry, stopIndices as stops } from "./mapGeometry";
 import { cloudScaleAtProgress, explorationProgress } from "./exploration";
 import { CartoonCloud } from "./CartoonCloud";
@@ -27,6 +27,7 @@ export function TopDownMap({
   draftSeconds?: number;
   targetSeconds?: number;
 }) {
+  const id = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const [zoom, setZoom] = useState(1);
   const [selected, setSelected] = useState<string | null>(null);
   const viewport = useRef<HTMLDivElement>(null);
@@ -50,6 +51,19 @@ export function TopDownMap({
     ),
   );
   const engine = position(distance);
+  const initialTrain = useRef(engine);
+  useEffect(() => {
+    const element = viewport.current;
+    if (!element) return;
+    const frame = requestAnimationFrame(() => {
+      element.scrollTo({
+        left: initialTrain.current.x / 1100 * element.scrollWidth - element.clientWidth / 2,
+        top: initialTrain.current.y / 650 * (element.querySelector("svg")?.clientHeight ?? 0) - element.clientHeight * 0.65,
+        behavior: "auto",
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
   const current =
     carriages.find((car) => car.id === selected) ??
     carriages.find((car) => car.id === ownId) ??
@@ -114,114 +128,123 @@ export function TopDownMap({
           role="group"
           aria-label={`Bản đồ khám phá: tàu có ${carriages.length} toa, đang ở ${names[stage]}; vùng chưa tới được phủ sương`}
         >
-          <rect width="1100" height="650" rx="24" fill="#dceac3" />
-          <path
-            d="M0 65 Q180 -20 350 70 T710 45 L1100 0 V650 H0Z"
-            fill="#cce0ab"
+          <defs>
+            <linearGradient id={`${id}-paper`} x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stopColor="#fbf2d9" />
+              <stop offset="1" stopColor="#ecdfbb" />
+            </linearGradient>
+            <linearGradient id={`${id}-meadow`} x1="0" y1="0" x2="0.9" y2="1">
+              <stop offset="0" stopColor="#d8edb8" />
+              <stop offset="1" stopColor="#b7d895" />
+            </linearGradient>
+            <linearGradient id={`${id}-water`} x1="0" y1="0" x2="0.9" y2="1">
+              <stop offset="0" stopColor="#8ccbd0" />
+              <stop offset="1" stopColor="#68adb8" />
+            </linearGradient>
+            <linearGradient id={`${id}-leaf`} x1="0" y1="0" x2="0.9" y2="1">
+              <stop offset="0" stopColor="#a7cb78" />
+              <stop offset="1" stopColor="#4d8d6a" />
+            </linearGradient>
+            <linearGradient id={`${id}-engine`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor="#65977d" />
+              <stop offset="1" stopColor="#284e43" />
+            </linearGradient>
+            <pattern id={`${id}-paper-grain`} width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M5 11h2M27 31h2M34 8h1" stroke="#8f9e6e" strokeWidth="1.2" strokeLinecap="round" opacity=".24" />
+              <circle cx="17" cy="24" r=".8" fill="#ab9368" opacity=".25" />
+            </pattern>
+          </defs>
+          <rect
+            className="map-paper"
+            width="1100"
+            height="650"
+            rx="24"
+            fill={`url(#${id}-paper)`}
           />
           <path
-            d="M920 0 Q780 85 910 195 Q1040 255 1000 450 Q970 560 1100 580 V0Z"
-            fill="#9bcfd4"
+            d="M-20 62 Q150 -24 324 45 T657 38 Q845 5 1120 52 V650 H-20Z"
+            fill={`url(#${id}-meadow)`}
           />
-          <path
-            d="M934 0 Q798 85 928 195 Q1058 255 1018 450"
-            fill="none"
-            stroke="#c1e6e7"
-            strokeWidth="7"
-          />
-          <ellipse cx="500" cy="402" rx="108" ry="45" fill="#9bcfd4" />
-          <ellipse cx="495" cy="398" rx="86" ry="29" fill="#b4dfdc" />
-          <g aria-hidden="true">
+          <path d="M-20 155 Q172 92 339 143 T682 130 Q894 95 1120 156 V650 H-20Z" fill="#c6e2a3" opacity=".48" />
+          <path d="M-20 462 Q197 398 367 458 T718 438 Q930 393 1120 450 V650 H-20Z" fill="#a9cf8e" opacity=".32" />
+          {coast ? (
+            <g className="map-coast" aria-hidden="true">
+              <path d="M930 -15 Q820 71 884 154 Q922 204 984 234 Q1040 266 1003 352 Q966 441 1029 510 Q1058 545 1120 554 V-15Z" fill={`url(#${id}-water)`} />
+              <path d="M920 -12 Q811 73 875 158 Q915 210 976 239 Q1028 267 992 355 Q956 443 1019 515" fill="none" stroke="#f1dfb2" strokeWidth="29" strokeLinecap="round" />
+              <path d="M930 -12 Q821 72 886 154 Q926 205 986 232 Q1037 262 1002 352 Q965 439 1027 511" fill="none" stroke="#d7f0dc" strokeWidth="6" strokeLinecap="round" />
+              <path d="M1034 112q24 10 46 0M1033 126q17 7 34 0M1036 417q24 10 47 0M1043 433q17 7 34 0" fill="none" stroke="#c4ece2" strokeWidth="4" strokeLinecap="round" opacity=".72" />
+              <path d="M978 514q25-12 43-2t32 2v24q-35 17-77-2Z" fill="#efdda8" opacity=".9" />
+            </g>
+          ) : (
+            <g className="map-lakes" aria-hidden="true">
+              <path d="M394 399 Q424 354 491 367 Q545 351 592 389 Q622 417 574 438 Q521 459 453 439 Q398 433 394 399Z" fill="#70b7c0" opacity=".83" />
+              <path d="M410 394 Q441 367 494 377 Q545 364 579 391 Q601 409 564 425 Q514 441 460 426 Q421 423 410 394Z" fill="#a8d9d0" />
+              <path d="M432 392q36-13 69-4M483 418q30 7 52 0" fill="none" stroke="#e4f2d8" strokeWidth="4" strokeLinecap="round" opacity=".8" />
+              <path d="M287 426 Q337 402 384 413 T431 404" fill="none" stroke="#80c2c1" strokeWidth="13" strokeLinecap="round" opacity=".63" />
+              <path d="M287 423 Q337 399 384 410 T431 401" fill="none" stroke="#c6e8d1" strokeWidth="3" strokeLinecap="round" opacity=".85" />
+            </g>
+          )}
+          <g className="map-woodland" aria-hidden="true">
             {[
-              [115, 140],
-              [170, 165],
-              [140, 220],
-              [220, 95],
-              [520, 75],
-              [570, 92],
-              [630, 62],
-              [685, 85],
-              [725, 105],
-              [410, 215],
-              [455, 230],
-              [590, 220],
-              [665, 265],
-              [720, 365],
-              [740, 580],
-              [665, 600],
-              [195, 410],
-              [245, 385],
-              [130, 560],
+              [115, 140, 1], [170, 165, 0.88], [140, 220, 0.95], [220, 95, 0.82],
+              [520, 75, 0.82], [570, 92, 0.72], [630, 62, 0.86], [685, 85, 0.75], [725, 105, 0.72],
+              [410, 215, 0.82], [455, 230, 0.76], [590, 220, 0.78], [665, 265, 0.9], [720, 365, 0.85],
+              [740, 580, 0.85], [665, 600, 0.9], [195, 410, 0.92], [245, 385, 0.78], [130, 560, 0.82],
+              [565, 505, 0.72], [875, 544, 0.75], [835, 116, 0.68], [57, 198, 0.75], [770, 220, 0.68],
             ].map(([x, y], i) => (
-              <g key={i} transform={`translate(${x} ${y})`}>
-                <ellipse
-                  cx="4"
-                  cy="10"
-                  rx="22"
-                  ry="17"
-                  fill="#6d9b65"
-                  opacity=".18"
-                />
-                <circle
-                  r={i % 2 ? 20 : 26}
-                  fill={i % 3 ? "#79a578" : "#4d8972"}
-                />
-                <circle cx="-6" cy="-6" r="13" fill="#a0c390" opacity=".7" />
-              </g>
-            ))}
-            {[
-              [125, 335],
-              [190, 310],
-              [95, 285],
-            ].map(([x, y], i) => (
-              <g key={i} transform={`translate(${x} ${y})`}>
-                <path d="M-38 28 L0 -40 L40 28Z" fill="#a8b1a2" />
-                <path
-                  d="M-13 -17 L0 -40 L15 -14 L2 -19 L-3 -12Z"
-                  fill="#f8f5e7"
-                />
-              </g>
-            ))}
-            {[
-              [925, 230],
-              [990, 245],
-              [970, 390],
-              [910, 405],
-              [1040, 355],
-            ].map(([x, y], i) => (
-              <g key={i} transform={`translate(${x} ${y})`}>
-                <rect
-                  x="-20"
-                  y="-19"
-                  width="40"
-                  height="38"
-                  rx="5"
-                  fill="#f6e6bf"
-                />
-                <path
-                  d="M-24 -6 L0 -26 L24 -6Z"
-                  fill={i % 2 ? "#c88468" : "#7b99a1"}
-                />
-                <rect
-                  x="-8"
-                  y="4"
-                  width="16"
-                  height="9"
-                  rx="2"
-                  fill="#a0b8b5"
-                />
-              </g>
-            ))}
-            {Array.from({ length: 25 }, (_, i) => (
-              <g
-                key={i}
-                transform={`translate(${70 + i * 37} ${590 + (i % 3) * 12})`}
-              >
-                <circle r="4" fill={i % 2 ? "#e5a498" : "#fff5cf"} />
-                <circle r="1.5" fill="#d5a348" />
+              <g key={i} transform={`translate(${x} ${y}) scale(${(i % 2 ? 0.9 : 1) * (y > 520 ? 0.88 : 1)})`}>
+                <ellipse cx="3" cy="24" rx="29" ry="13" fill="#527b52" opacity=".19" />
+                <path d="M-7 13h14v18H-7Z" fill="#9b714d" />
+                <circle r={i % 3 ? 24 : 29} fill={`url(#${id}-leaf)`} stroke="#477e5f" strokeWidth="3" />
+                <circle cx="-15" cy="5" r="15" fill="#82b66f" stroke="#5d9969" strokeWidth="2" />
+                <circle cx="13" cy="7" r="16" fill={i % 2 ? "#72a96d" : "#5c9b70"} stroke="#4b8764" strokeWidth="2" />
+                <ellipse cx="-7" cy="-9" rx="10" ry="6" fill="#d0e49a" opacity=".62" />
               </g>
             ))}
           </g>
+          <g className="map-mountains" aria-hidden="true">
+            {[
+              [125, 335, 1], [190, 310, 0.78], [95, 285, 0.72], [220, 365, 0.58],
+            ].map(([x, y], i) => (
+              <g key={i} transform={`translate(${x} ${y}) scale(${[1, 0.9, 0.84, 1][i]})`}>
+                <path d="M-54 34 Q-43 11-26 6 Q-7-48 7-50 Q27-18 36 3 Q51 10 56 34Z" fill="#829b87" stroke="#617f73" strokeWidth="4" strokeLinejoin="round" />
+                <path d="M-10-19 Q1-50 7-50 Q21-26 28-12 Q14-21 7-9 Q0-20-10-19Z" fill="#fff4d5" stroke="#d9e2ca" strokeWidth="2" strokeLinejoin="round" />
+                <path d="M-38 22 Q-11 13 10 22 T42 21" fill="none" stroke="#abc59d" strokeWidth="3" strokeLinecap="round" opacity=".85" />
+              </g>
+            ))}
+          </g>
+          <g className="map-landmarks" aria-hidden="true">
+            {[
+              [220, 455, "#d4885c"], [870, 363, "#dfac5a"], [700, 88, "#8d9cba"],
+              [178, 196, "#77a786"], [1016, 265, "#d57064"],
+            ].map(([x, y], i) => (
+              <g key={i} transform={`translate(${x} ${y})`}>
+                <ellipse cx="2" cy="24" rx="36" ry="11" fill="#536c4d" opacity=".2" />
+                <rect x="-29" y="-13" width="58" height="39" rx="7" fill="#fff0c9" stroke="#85664e" strokeWidth="3" />
+                <path d="M-35-11 0-38 35-11Z" fill={String(["#d4885c", "#dfac5a", "#8d9cba", "#77a786", "#d57064"][i])} stroke="#805d48" strokeWidth="3" strokeLinejoin="round" />
+                <rect x="-8" y="3" width="16" height="23" rx="5" fill="#9a7051" />
+                <rect x="-22" y="-4" width="10" height="10" rx="2" fill="#81c0bd" stroke="#638b77" strokeWidth="2" />
+                <rect x="12" y="-4" width="10" height="10" rx="2" fill="#81c0bd" stroke="#638b77" strokeWidth="2" />
+                <circle cx="23" cy="-26" r="7" fill="#fff4d6" stroke="#805d48" strokeWidth="2" />
+              </g>
+            ))}
+          </g>
+          <g className="map-flower-meadow" aria-hidden="true">
+            {Array.from({ length: 25 }, (_, i) => (
+              <g
+                key={i}
+                transform={`translate(${54 + i * 39} ${584 + (i % 3) * 14})`}
+              >
+                <ellipse cy="8" rx="2" ry="8" fill="#699766" />
+                <circle cy="-3" r="3.5" fill={i % 2 ? "#e8a19a" : "#fff3c8"} />
+                <circle cx="-4" cy="1" r="3.2" fill={i % 2 ? "#e8a19a" : "#fff3c8"} />
+                <circle cx="4" cy="1" r="3.2" fill={i % 2 ? "#e8a19a" : "#fff3c8"} />
+                <circle cy="4" r="3.1" fill={i % 2 ? "#e8a19a" : "#fff3c8"} />
+                <circle r="1.7" fill="#d6aa53" />
+              </g>
+            ))}
+          </g>
+          <rect width="1100" height="650" rx="24" fill={`url(#${id}-paper-grain)`} opacity=".28" pointerEvents="none" />
           <g aria-hidden="true">
             {stage >= 4 && (
               <text x="40" y="58" className="overhead-region">
@@ -250,44 +273,45 @@ export function TopDownMap({
             )}
           </g>
           <path
+            className="map-rail-layer map-rail-bed"
             d={path}
             pathLength={total}
             fill="none"
-            stroke="#baa88a"
-            strokeWidth="23"
+            stroke="#6f7257"
+            strokeWidth="34"
+            strokeLinecap="round"
             strokeLinejoin="round"
           />
           <path
+            className="map-rail-layer map-rail-sleepers"
             d={path}
             pathLength={total}
             fill="none"
-            stroke="#f3dfb5"
-            strokeWidth="17"
+            stroke="#a67d52"
+            strokeWidth="28"
+            strokeDasharray="2 13"
+            strokeLinecap="round"
             strokeLinejoin="round"
           />
           <path
+            className="map-rail-layer map-rail-runner"
             d={path}
             pathLength={total}
             fill="none"
-            stroke="#816f5d"
-            strokeWidth="29"
-            strokeDasharray="3 13"
+            stroke="#f2d9a7"
+            strokeWidth="13"
+            strokeLinecap="round"
             strokeLinejoin="round"
           />
           <path
+            className="map-rail-layer map-rail-progress"
             d={path}
             pathLength={total}
             fill="none"
-            stroke="#aac296"
+            stroke="#dc8050"
             strokeWidth="7"
-            strokeLinejoin="round"
-          />
-          <path
-            d={path}
-            pathLength={total}
-            fill="none"
-            stroke="#e4a557"
-            strokeWidth="7"
+            strokeDasharray={`${Math.min(total, distance)} ${total}`}
+            strokeLinecap="round"
             strokeLinejoin="round"
           />
           <g
@@ -318,24 +342,22 @@ export function TopDownMap({
           {stops.slice(0, stage + 1).map((stop, i) => {
             const [x, y] = route[stop];
             return (
-              <g
-                key={stop}
-                aria-label={`${names[i]}: đã khám phá`}
-              >
+              <g key={stop} className="map-station-marker" aria-label={`${names[i]}: đã khám phá`}>
                 <circle
                   cx={x}
                   cy={y}
-                  r="19"
-                  fill="#f6d599"
-                  stroke="#ae8147"
-                  strokeWidth="3"
+                  r="23"
+                  fill="#fff0c7"
+                  stroke="#9e6e48"
+                  strokeWidth="4"
                 />
+                <circle cx={x} cy={y} r="17" fill="#e4a45a" stroke="#fff7df" strokeWidth="2" />
                 <text
                   x={x}
                   y={y + 5}
                   textAnchor="middle"
-                  fill="#42564a"
-                  fontSize="14"
+                  fill="#fff8df"
+                  fontSize="15"
                   fontWeight="800"
                 >
                   {i + 1}
@@ -343,11 +365,12 @@ export function TopDownMap({
                 <rect
                   x={x - 86}
                   y={y + 27}
-                  width="172"
-                  height="30"
-                  rx="12"
-                  fill="#fcfaf0"
-                  opacity=".96"
+                  width="178"
+                  height="32"
+                  rx="15"
+                  fill="#fff8e5"
+                  stroke="#c8a975"
+                  strokeWidth="2"
                 />
                 <text
                   x={x}
@@ -361,39 +384,20 @@ export function TopDownMap({
             );
           })}
           <g
+            className="map-engine"
             transform={`translate(${engine.x} ${engine.y}) rotate(${engine.angle})`}
             aria-label="Đầu tàu"
           >
-            <rect
-              x="-23"
-              y="-15"
-              width="46"
-              height="34"
-              rx="10"
-              fill="#526553"
-              opacity=".2"
-            />
-            <rect
-              x="-24"
-              y="-15"
-              width="48"
-              height="30"
-              rx="9"
-              fill="#354f46"
-              stroke="#fff4d5"
-              strokeWidth="2"
-            />
-            <rect
-              x="-20"
-              y="-12"
-              width="19"
-              height="24"
-              rx="4"
-              fill="#ebc573"
-            />
-            <rect x="4" y="-9" width="15" height="18" rx="5" fill="#72a190" />
-            <circle cx="12" cy="0" r="5" fill="#344b42" />
-            <path d="M25 -8 L30 0 L25 8" fill="#d4aa64" />
+            <ellipse cx="3" cy="15" rx="30" ry="18" fill="#345847" opacity=".24" />
+            <circle cx="-15" cy="12" r="7" fill="#3d4c42" stroke="#e4c888" strokeWidth="2" />
+            <circle cx="15" cy="12" r="7" fill="#3d4c42" stroke="#e4c888" strokeWidth="2" />
+            <rect x="-27" y="-18" width="54" height="34" rx="12" fill={`url(#${id}-engine)`} stroke="#fff1c7" strokeWidth="3" />
+            <rect x="-21" y="-12" width="23" height="22" rx="7" fill="#f1c868" stroke="#fff0c5" strokeWidth="2" />
+            <rect x="7" y="-11" width="13" height="21" rx="6" fill="#7fbaa1" stroke="#d8efd2" strokeWidth="2" />
+            <circle cx="13.5" cy="-1" r="4" fill="#274a42" />
+            <path d="M26-9 Q37 0 26 9Z" fill="#dc8050" stroke="#fff1c7" strokeWidth="2" />
+            <circle cx="29" cy="0" r="3" fill="#fff2aa" />
+            <path d="M-18-15h32" stroke="#a8d0a0" strokeWidth="3" strokeLinecap="round" opacity=".85" />
           </g>
           {carriages.map((car, i) => {
             const p = position(distance - (i + 1) * 49);
@@ -414,42 +418,31 @@ export function TopDownMap({
                 }}
                 className="overhead-car"
               >
-                <rect
-                  x="-26"
-                  y="-3"
-                  width="52"
-                  height="6"
-                  rx="2"
-                  fill="#736955"
-                />
-                <rect
-                  x="-21"
-                  y="-13"
-                  width="43"
-                  height="30"
-                  rx="7"
-                  fill="#526553"
-                  opacity=".2"
-                />
+                <ellipse cx="1" cy="14" rx="27" ry="15" fill="#345847" opacity=".23" />
+                <circle cx="-14" cy="12" r="6" fill="#3d4c42" stroke="#e4c888" strokeWidth="2" />
+                <circle cx="14" cy="12" r="6" fill="#3d4c42" stroke="#e4c888" strokeWidth="2" />
                 <rect
                   x="-22"
-                  y="-15"
+                  y="-17"
                   width="44"
-                  height="30"
-                  rx="7"
+                  height="33"
+                  rx="11"
                   fill={car.color}
                   stroke={current?.id === car.id ? "#fff3b4" : "#36594a"}
-                  strokeWidth={current?.id === car.id ? 4 : 2}
+                  strokeWidth={current?.id === car.id ? 4 : 3}
                 />
                 <rect
                   x="-15"
-                  y="-10"
+                  y="-11"
                   width="30"
-                  height="20"
-                  rx="4"
+                  height="22"
+                  rx="7"
                   fill="#fff2cc"
-                  opacity=".5"
+                  stroke="#ffffff"
+                  strokeWidth="1.5"
+                  opacity=".82"
                 />
+                <path d="M-13-7h26" stroke="#fffefa" strokeWidth="2" strokeLinecap="round" opacity=".76" />
                 <text
                   y="5"
                   textAnchor="middle"

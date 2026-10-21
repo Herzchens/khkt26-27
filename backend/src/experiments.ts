@@ -17,9 +17,14 @@ export function goalSummary(goal: string): string {
   return characters.length > 200 ? characters.slice(0, 199).join("") + "…" : text;
 }
 
+export function tripIdentity(userId: string, sessionId: string, secret: string) {
+  const id = createHmac("sha256", secret).update(`trip:${userId}:${sessionId}`).digest("hex");
+  return { id, tripCode: `V-${id.slice(0, 12).toUpperCase()}` };
+}
+
 export function experimentRecord(session: Session, secret: string) {
   const hash = (value: string) => createHmac("sha256", secret).update(value).digest("hex");
-  const id = hash(`trip:${session.userId}:${session.id}`);
+  const identity = tripIdentity(session.userId, session.id, secret);
   const wallElapsed = Math.max(0, (session.ended - session.started) / 1000);
   const elapsedSeconds = Math.min(totalDurationSeconds(session.target, session.breakPlan), wallElapsed);
   const studyElapsed = studyElapsedSeconds(session.started, session.target, session.breakPlan, session.ended);
@@ -33,7 +38,7 @@ export function experimentRecord(session: Session, secret: string) {
       0,
     );
   return {
-    id, tripCode: `V-${id.slice(0, 12).toUpperCase()}`,
+    ...identity,
     testerCode: `T-${hash(`tester:${session.userId}`).slice(0, 10).toUpperCase()}`,
     goalSummary: goalSummary(session.goal), topic: session.topic,
     targetSeconds: session.target, elapsedSeconds, studyElapsedSeconds: studyElapsed,

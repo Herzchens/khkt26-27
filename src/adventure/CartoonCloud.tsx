@@ -15,10 +15,14 @@ export function CartoonCloud({
 }) {
   const path = silhouettes[((variant % silhouettes.length) + silhouettes.length) % silhouettes.length];
   return (
-    <path
-      className={className}
-      d={path}
-      style={{ transform: `scale(${scale})` }}
-    />
+    <g className={className} style={{ transform: `scale(${scale})` }}>
+      <path className="cartoon-cloud-shadow" d={path} transform="translate(0 9)" />
+      <path className="cartoon-cloud-depth" d={path} transform="translate(0 4)" />
+      <path className="cartoon-cloud-body" d={path} fill="#eef4ef" fillOpacity={1} />
+      <path
+        className="cartoon-cloud-highlight"
+        d="M-99 25 C-116 16 -112 0 -99 -7 C-91 -15 -80 -17 -69 -14 C-62 -30 -48 -38 -34 -37 C-17 -36 -9 -27 -3 -16 C10 -32 29 -40 44 -34 C60 -27 65 -14 64 -3 C78 -10 94 -4 100 8 C106 19 97 28 81 32 L-88 32Z"
+      />
+    </g>
   );
 }

@@ -176,24 +176,37 @@ export function DurationPicker({
       )}
 
       {canConfigureBreaks && (
-        <section className="duration-total" aria-live="polite" aria-atomic="true">
+        <section className="duration-total">
           {totalSeconds === null ? (
-            <p className="duration-total-invalid">
+            <p className="duration-total-invalid" aria-live="polite">
               Hãy sửa thời gian học và lịch nghỉ để xem tổng thời lượng.
             </p>
           ) : (
             <>
-              <div className="duration-total-heading">
-                <span>Tổng thời lượng</span>
-                <strong>{totalSeconds / 60} phút</strong>
+              <div className="duration-total-summary" aria-live="polite" aria-atomic="true">
+                <div className="duration-total-heading">
+                  <span>Tổng thời lượng</span>
+                  <strong>{totalSeconds / 60} phút</strong>
+                </div>
+                <p className="duration-total-detail">
+                  {breakCount > 0
+                    ? `${value} phút học · ${breakCount} lần nghỉ × ${breakMinutes} phút`
+                    : `${value} phút học liên tục`}
+                </p>
+                {breakCount > 0 && (
+                  <p className="duration-total-explanation">
+                    {breakCount + 1} chặng học, chia đều {value} phút học.
+                  </p>
+                )}
               </div>
-              <p className="duration-total-detail">
-                {value} phút học
-                {breakCount > 0 ? ` + ${breakCount * breakMinutes} phút giải lao` : " liên tục"}
-              </p>
-              <p className="duration-timeline" aria-label="Trình tự phiên học">
-                {timeline.join(" → ")}
-              </p>
+              {breakCount > 0 && (
+                <details className="duration-details">
+                  <summary>Xem lịch từng chặng</summary>
+                  <p className="duration-timeline" aria-label="Trình tự phiên học">
+                    {timeline.join(" → ")}
+                  </p>
+                </details>
+              )}
             </>
           )}
         </section>

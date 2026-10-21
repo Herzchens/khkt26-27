@@ -4,14 +4,36 @@
 }
 
 .cartoon-cloud-shape {
-  fill: #f7f8f1;
-  fill-opacity: 1;
-  stroke: #dbe3d7;
-  stroke-width: 2;
-  stroke-opacity: 1;
   transform-box: fill-box;
   transform-origin: center;
   transition: transform 650ms cubic-bezier(0.18, 0.8, 0.28, 1);
+}
+
+.cartoon-cloud-shadow {
+  fill: #738a83;
+  stroke: #738a83;
+  stroke-width: 2;
+  opacity: .2;
+}
+
+.cartoon-cloud-depth {
+  fill: #cbd7ce;
+  stroke: #cbd7ce;
+  stroke-width: 3;
+  opacity: .9;
+}
+
+.cartoon-cloud-body {
+  fill: #eef4ef;
+  fill-opacity: 1;
+  stroke: #c4d3cd;
+  stroke-width: 3;
+  stroke-opacity: 1;
+}
+
+.cartoon-cloud-highlight {
+  fill: #fffef7;
+  opacity: .72;
 }
 
 .overhead-exploration-progress {

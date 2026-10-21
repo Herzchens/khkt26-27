@@ -9,7 +9,6 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "tesseract.js": "7.0.0",
-    "three": "^0.186.1",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zustand": "^5.0.15"
   },
@@ -18,7 +17,6 @@
     "@types/node": "^24.19.1",
     "@types/react": "~19.2.2",
     "@types/react-dom": "~19.2.0",
-    "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "^6.1.2",
     "eslint": "^9.39.5",
     "eslint-plugin-react-hooks": "^7.1.1",
