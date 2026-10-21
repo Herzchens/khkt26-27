@@ -1,19 +1,14 @@
-export type SceneStopPhase = "travelling" | "parked" | "departing";
-export type SceneStationPhase = SceneStopPhase | "approaching";
-export type SceneRestStop = { index: number; count: number };
-export type SceneUpcomingRestStop = SceneRestStop & { remainingSeconds: number };
-
 export const SCENE_ENGINE_CENTER_X = 450;
 export const SCENE_REST_STATION_X = SCENE_ENGINE_CENTER_X;
-export const SCENE_REST_APPROACH_SECONDS = 12;
-export const SCENE_REST_APPROACH_START_X = 1050;
-export const SCENE_REST_DEPARTURE_END_X = -150;
-export const SCENE_START_DEPARTURE_SECONDS = 1.9;
 export const SCENE_ARRIVAL_STATION_X = SCENE_ENGINE_CENTER_X;
 export const SCENE_TRAIN_ARRIVAL_X = SCENE_ENGINE_CENTER_X;
+export const SCENE_WORLD_TILE_WIDTH = 900;
+export const SCENE_BASE_WORLD_SPEED = 50 / 3;
+export const SCENE_MIN_STATION_SPACING = 220;
+export const SCENE_MAX_INTERPOLATION_GAP_SECONDS = 2;
 const SCENE_TRAIN_CARRIAGE_STEP = 64;
 
-/** Keep the engine centered through ordinary travel and scheduled breaks. */
+/** Keep the engine centered while the surrounding world moves past it. */
 export function sceneTrainLayout(engineX: number) {
   return {
     travelX: engineX,
@@ -46,93 +41,86 @@ export function sceneViewBoxForZoom(zoom: number, terminal = false): string {
   return `${left} ${210 - height / 2} ${width} ${height}`;
 }
 
-/** Show the departure footprint at the start, then slide it off the left edge. */
-export function sceneDepartureStationX(elapsedSeconds: number): number | null {
-  if (!Number.isFinite(elapsedSeconds) || elapsedSeconds < 0 || elapsedSeconds > SCENE_START_DEPARTURE_SECONDS)
-    return null;
-  return elapsedSeconds === 0 ? SCENE_ENGINE_CENTER_X : SCENE_REST_DEPARTURE_END_X;
-}
-
-/** Bring the final station in from the right during the last twelve trip seconds. */
-export function sceneArrivalStationX(remainingSeconds: number): number | null {
-  if (!Number.isFinite(remainingSeconds) || remainingSeconds < 0 || remainingSeconds > SCENE_REST_APPROACH_SECONDS)
-    return null;
-  const travel = SCENE_REST_APPROACH_START_X - SCENE_ENGINE_CENTER_X;
-  return SCENE_ENGINE_CENTER_X + (travel * remainingSeconds) / SCENE_REST_APPROACH_SECONDS;
-}
-
-/** Place an upcoming station just outside the right edge, then center it at break time. */
-export function sceneUpcomingRestStationX(
-  upcoming: Pick<SceneUpcomingRestStop, "remainingSeconds"> | null,
-): number | null {
-  if (!upcoming || !Number.isFinite(upcoming.remainingSeconds)) return null;
-  const remaining = upcoming.remainingSeconds;
-  if (remaining < 0 || remaining > SCENE_REST_APPROACH_SECONDS) return null;
-  const bounded = Math.min(SCENE_REST_APPROACH_SECONDS, remaining);
-  const distance = SCENE_REST_APPROACH_START_X - SCENE_REST_STATION_X;
-  return SCENE_REST_STATION_X + (distance * bounded) / SCENE_REST_APPROACH_SECONDS;
-}
-
-export type SceneRestStationPosition = {
-  stop: SceneRestStop | null;
-  x: number | null;
-  phase: SceneStationPhase;
-};
-
-/** Resolve the one station pose from live break state, countdown, and departure state. */
-export function sceneRestStationPosition(
-  current: SceneRestStop | null,
-  upcoming: SceneUpcomingRestStop | null,
-  previous: SceneRestStop | null,
-  phase: SceneStopPhase,
-): SceneRestStationPosition {
-  if (current) return { stop: current, x: SCENE_REST_STATION_X, phase: "parked" };
-
-  if (phase === "departing") {
-    const stop = previous;
-    return stop
-      ? { stop, x: SCENE_REST_DEPARTURE_END_X, phase: "departing" }
-      : { stop: null, x: null, phase: "travelling" };
+/**
+ * Use one global speed for the whole trip, with enough space between station
+ * centers for their captions even when a legacy or unusually dense schedule
+ * has short study stages.
+ */
+export function sceneWorldSpeedForSchedule(
+  targetStudySeconds: number,
+  restAnchorStudySeconds: number[],
+): number {
+  const target = Number.isFinite(targetStudySeconds) && targetStudySeconds > 0
+    ? targetStudySeconds
+    : 0;
+  const points = [
+    0,
+    ...restAnchorStudySeconds.filter((value) => Number.isFinite(value) && value > 0 && value < target),
+    target,
+  ].sort((a, b) => a - b);
+  let minimumGap = Number.POSITIVE_INFINITY;
+  for (let index = 1; index < points.length; index += 1) {
+    const gap = points[index] - points[index - 1];
+    if (gap > 0) minimumGap = Math.min(minimumGap, gap);
   }
-
-  const upcomingX = sceneUpcomingRestStationX(upcoming);
-  if (upcoming && upcomingX !== null) {
-    return {
-      stop: { index: upcoming.index, count: upcoming.count },
-      x: upcomingX,
-      phase: "approaching",
-    };
-  }
-
-  return { stop: null, x: null, phase: "travelling" };
+  return Number.isFinite(minimumGap)
+    ? Math.max(SCENE_BASE_WORLD_SPEED, SCENE_MIN_STATION_SPACING / minimumGap)
+    : SCENE_BASE_WORLD_SPEED;
 }
 
-/** Keep the last station illustration while it completes its leftward departure. */
-export function sceneRestStopForPhase(
-  current: SceneRestStop | null,
-  previous: SceneRestStop | null,
-  phase: SceneStopPhase,
-): SceneRestStop | null {
-  return current ?? (phase === "departing" ? previous : null);
+export function sceneWorldDistance(elapsedStudySeconds: number, speed = SCENE_BASE_WORLD_SPEED): number {
+  const elapsed = Number.isFinite(elapsedStudySeconds) ? Math.max(0, elapsedStudySeconds) : 0;
+  const safeSpeed = Number.isFinite(speed) ? Math.max(0, speed) : SCENE_BASE_WORLD_SPEED;
+  return elapsed * safeSpeed;
 }
 
-/** Break entry is already centered by the countdown; only break exit animates. */
-export function transitionSceneStop(
-  current: SceneStopPhase,
-  previousRestIndex: number | null,
-  nextRestIndex: number | null,
-  motionAllowed: boolean,
-): SceneStopPhase {
-  if (nextRestIndex === null) {
-    if (previousRestIndex !== null) return motionAllowed ? "departing" : "travelling";
-    if (current === "departing") return motionAllowed ? current : "travelling";
-    return "travelling";
-  }
-
-  return "parked";
+/** Shared camera translation plus a static-tile origin for the repeating land. */
+export function sceneMotionForStudyElapsed(
+  elapsedStudySeconds: number,
+  speed = SCENE_BASE_WORLD_SPEED,
+) {
+  const distance = sceneWorldDistance(elapsedStudySeconds, speed);
+  const periodicOrigin = Math.floor(distance / SCENE_WORLD_TILE_WIDTH) * SCENE_WORLD_TILE_WIDTH;
+  return {
+    distance,
+    cameraOffset: -distance,
+    periodicOrigin,
+    periodicOffset: periodicOrigin - distance,
+  };
 }
 
-/** Finish the one-shot station departure without changing schedule or trip state. */
-export function completeSceneStopMotion(phase: SceneStopPhase): SceneStopPhase {
-  return phase === "departing" ? "travelling" : phase;
+/** Fixed world coordinate for a station scheduled at a study-time anchor. */
+export function sceneStationWorldX(anchorStudySeconds: number, speed = SCENE_BASE_WORLD_SPEED): number {
+  return SCENE_ENGINE_CENTER_X + sceneWorldDistance(anchorStudySeconds, speed);
+}
+
+/** Current screen coordinate after applying the same world camera as terrain. */
+export function sceneStationScreenX(
+  anchorStudySeconds: number,
+  elapsedStudySeconds: number,
+  speed = SCENE_BASE_WORLD_SPEED,
+): number {
+  return sceneStationWorldX(anchorStudySeconds, speed) - sceneWorldDistance(elapsedStudySeconds, speed);
+}
+
+/** Do not animate an initial mount or the first update after motion resumes. */
+export function sceneMotionCanInterpolate(
+  currentlyAllowed: boolean,
+  previouslyAllowed: boolean,
+  currentStudyElapsedSeconds?: number,
+  previousStudyElapsedSeconds?: number,
+): boolean {
+  if (!currentlyAllowed || !previouslyAllowed) return false;
+  if (currentStudyElapsedSeconds === undefined || previousStudyElapsedSeconds === undefined) return true;
+  const delta = currentStudyElapsedSeconds - previousStudyElapsedSeconds;
+  return delta >= 0 && delta <= SCENE_MAX_INTERPOLATION_GAP_SECONDS;
+}
+
+/** Match the CSS camera transition to the elapsed sample interval. */
+export function sceneMotionInterpolationDurationMs(
+  currentStudyElapsedSeconds: number,
+  previousStudyElapsedSeconds: number,
+): number {
+  const delta = currentStudyElapsedSeconds - previousStudyElapsedSeconds;
+  return Number.isFinite(delta) && delta > 0 ? delta * 1000 : 0;
 }

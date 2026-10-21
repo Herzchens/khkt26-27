@@ -1,6 +1,11 @@
 .travel-world {
-  background: #c4dda0;
+  --scene-ground: #c4dda0;
+  background: var(--scene-ground);
 }
+
+.travel-ground-base { fill: var(--scene-ground); }
+.travel-meadow { shape-rendering: crispEdges; }
+html[data-theme="dark"] .adventure .travel-world { --scene-ground: #52694d; }
 
 .travel-scene .travel-rest-stop,
 .travel-scene .travel-arrival-stop,
@@ -8,77 +13,52 @@
   filter: drop-shadow(0 3px 0 #61765020);
 }
 
-.travel-scene .travel-rest-stop-position {
+.travel-scene .travel-world-motion {
   transform-box: view-box;
   transform-origin: 0 0;
-  transform: translateX(var(--station-shift));
-}
-
-.travel-scene .travel-session-stop-position {
-  transform-box: view-box;
-  transform-origin: 0 0;
-  transform: translateX(var(--station-shift));
-}
-
-.travel-scene[data-stop-motion="true"] .travel-rest-stop-position[data-stop-phase="approaching"],
-.travel-scene[data-stop-motion="true"] .travel-rest-stop-position[data-stop-phase="parked"] {
-  transition: transform 1000ms linear;
-}
-
-.travel-scene[data-stop-motion="false"] .travel-rest-stop-position {
+  transform: translateX(var(--world-camera-offset, 0px));
   transition: none;
 }
 
-.travel-scene[data-stop-motion="true"] .travel-session-stop-position[data-station-phase="departing"] {
-  transition: transform 850ms cubic-bezier(0.3, 0.7, 0.35, 1);
+.travel-scene .travel-world-motion[data-world-interpolate="true"] {
+  transition: transform var(--world-transition-duration, 1000ms) linear;
 }
 
-.travel-scene[data-stop-motion="true"] .travel-session-stop-position[data-station-phase="approaching"],
-.travel-scene[data-stop-motion="true"] .travel-session-stop-position[data-station-phase="arrived"] {
-  transition: transform 1000ms linear;
+.travel-scene .travel-periodic-world,
+.travel-scene .travel-rail-ties {
+  animation: none !important;
+  transition: none !important;
 }
 
-.travel-scene[data-stop-motion="false"] .travel-session-stop-position {
-  transition: none;
-}
-
-.travel-scene[data-stop-motion="true"] .travel-rest-stop-position[data-stop-phase="departing"] {
-  animation: travel-stop-depart 850ms cubic-bezier(0.4, 0, 0.7, 0.28) both;
+.travel-scene .map-scenery--travel {
+  animation: none !important;
 }
 
 .travel-scene .travel-train-position {
   transform-box: view-box;
   transform-origin: 0 0;
-  transform: translateX(var(--travel-shift));
+  transform: translateX(var(--travel-shift, 0px));
 }
 
 .travel-scene[data-arrival="true"] .travel-train-position {
-  transform: translateX(var(--arrival-shift));
+  transform: translateX(var(--arrival-shift, 0px));
   animation: none !important;
 }
 
+.travel-scene[data-moving="false"] .travel-train-motion,
 .travel-scene[data-stop-motion="false"] .travel-train-position,
 .travel-scene[data-stop-motion="false"] .travel-wheel,
 .travel-scene[data-stop-motion="false"] .train-steam-puff {
   animation-play-state: paused;
 }
 
-@keyframes travel-stop-depart {
-  from { transform: translateX(0); }
-  to { transform: translateX(var(--station-departure-shift)); }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .travel-scene .travel-rest-stop-position,
-  .travel-scene .travel-session-stop-position,
+  .travel-scene .travel-world-motion,
   .travel-scene .travel-train-position,
+  .travel-scene .travel-train-motion,
   .travel-scene .travel-wheel,
   .travel-scene .train-steam-puff {
     animation: none !important;
     transition: none !important;
-  }
-
-  .travel-scene .travel-rest-stop-position[data-stop-phase="departing"] {
-    transform: translateX(var(--station-departure-shift));
   }
 }

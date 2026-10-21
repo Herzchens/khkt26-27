@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import test, { after, before } from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -15,7 +14,7 @@ let TopDownScene;
 before(async () => {
   vite = await createServer({
     configFile: resolve(projectRoot, "vite.config.ts"),
-    cacheDir: resolve(tmpdir(), "viendu-v3-scene-tests", "rest-stop"),
+    cacheDir: resolve(tmpdir(), "viendu-v4-motion-tests", "rest-stop"),
     appType: "custom",
     logLevel: "silent",
     server: { middlewareMode: true },
@@ -27,123 +26,146 @@ after(async () => {
   await vite?.close();
 });
 
+const timingAtStudy = (elapsedStudySeconds, targetStudySeconds = 120, restAnchors = [
+  { index: 1, count: 1, elapsedStudySeconds: 60 },
+]) => ({
+  elapsedSeconds: elapsedStudySeconds,
+  remainingSeconds: targetStudySeconds - elapsedStudySeconds,
+  elapsedStudySeconds,
+  targetStudySeconds,
+  restAnchors,
+});
+
 const sceneMarkup = (overrides = {}) => renderToStaticMarkup(
   React.createElement(TopDownScene, {
     carriages: [{ id: "guest", name: "Toa Mây", color: "#398575" }],
     ownId: "guest",
-    running: false,
+    running: true,
     fogStrength: 0,
     exploration: 0.25,
     restStop: null,
+    sessionTiming: timingAtStudy(0),
     motionAllowed: true,
     ...overrides,
   }),
 );
 
-test("mounting during a scheduled break shows the train parked at a rest stop", () => {
-  const markup = sceneMarkup({ restStop: { index: 1, count: 1 } });
+function stationTag(markup, id) {
+  const index = markup.indexOf(`data-station-id="${id}"`);
+  assert.notEqual(index, -1, `station ${id} is rendered`);
+  const start = markup.lastIndexOf("<g", index);
+  const end = markup.indexOf(">", index);
+  return markup.slice(start, end + 1);
+}
 
-  assert.match(markup, /data-stop-phase="parked"/u);
-  assert.match(markup, /TRẠM NGHỈ/u);
-  assert.match(markup, /data-rest-index="1"/u);
-  assert.match(markup, /class="travel-rest-stop-position"[^>]*data-station-x="450"/u);
-  assert.match(markup, /class="travel-train"[^>]*transform="translate\(450 210\) scale\(1\) translate\(-450 -210\)"/u);
+function stationNumber(markup, id, attribute) {
+  const tag = stationTag(markup, id);
+  const value = tag.match(new RegExp(`${attribute}="([^"]+)"`, "u"))?.[1];
+  assert.notEqual(value, undefined, `station ${id} exposes ${attribute}`);
+  return Number(value);
+}
+
+function near(actual, expected) {
+  assert.ok(Math.abs(actual - expected) < 0.0001, `expected ${actual} to be near ${expected}`);
+}
+
+function worldNumber(markup, attribute) {
+  const tag = markup.match(/<g\b[^>]*class="travel-world-motion"[^>]*>/u)?.[0];
+  assert.ok(tag, "the scene uses one shared world-motion group");
+  const value = tag.match(new RegExp(`${attribute}="([^"]+)"`, "u"))?.[1];
+  assert.notEqual(value, undefined, `world motion exposes ${attribute}`);
+  return Number(value);
+}
+
+test("the trip origin stays visible after the opening seconds and follows the terrain distance", () => {
+  const atStart = sceneMarkup({ sessionTiming: timingAtStudy(0) });
+  const afterTwoSeconds = sceneMarkup({ sessionTiming: timingAtStudy(2) });
+
+  assert.equal(stationNumber(atStart, "start", "data-station-screen-x"), 450);
+  assert.ok(Math.abs(stationNumber(afterTwoSeconds, "start", "data-station-screen-x") - 416.6666666667) < 0.0001);
+  assert.ok(Math.abs(worldNumber(afterTwoSeconds, "data-world-distance") - 33.3333333333) < 0.0001);
+  assert.ok(Math.abs(
+    stationNumber(afterTwoSeconds, "start", "data-station-screen-x") -
+    (450 - worldNumber(afterTwoSeconds, "data-world-distance")),
+  ) < 0.0001);
 });
 
-test("the upcoming station approaches from offscreen right and centers as the break begins", () => {
-  const twelveSeconds = sceneMarkup({ upcomingRestStop: { index: 1, count: 2, remainingSeconds: 12 } });
-  const sixSeconds = sceneMarkup({ upcomingRestStop: { index: 1, count: 2, remainingSeconds: 6 } });
+test("the rest footprint approaches, parks, and departs at the shared world speed", () => {
+  const approach = sceneMarkup({ sessionTiming: timingAtStudy(24) });
+  const parkedAtBreak = sceneMarkup({
+    restStop: { index: 1, count: 1 },
+    sessionTiming: timingAtStudy(60),
+  });
+  const resumedStudy = sceneMarkup({ sessionTiming: timingAtStudy(61) });
+
+  assert.equal(stationNumber(approach, "rest-1", "data-station-screen-x"), 1050);
+  near(stationNumber(parkedAtBreak, "rest-1", "data-station-screen-x"), 450);
+  near(stationNumber(resumedStudy, "rest-1", "data-station-screen-x"), 433.3333333333);
+  near(worldNumber(parkedAtBreak, "data-world-distance"), 1000);
+  near(worldNumber(resumedStudy, "data-world-distance"), 1016.6666666667);
+});
+
+test("the terminal stays ahead until study target, then meets the centered engine", () => {
+  const approach = sceneMarkup({ sessionTiming: timingAtStudy(84) });
+  const terminal = sceneMarkup({ sessionTiming: timingAtStudy(120) });
+
+  assert.equal(stationNumber(approach, "terminal", "data-station-screen-x"), 1050);
+  near(stationNumber(terminal, "terminal", "data-station-screen-x"), 450);
+  assert.match(terminal, /class="travel-train"[^>]*transform="translate\(450 210\)/u);
+});
+
+test("scheduled breaks freeze the world camera and the station anchors", () => {
   const breakStart = sceneMarkup({
-    restStop: { index: 1, count: 2 },
-    upcomingRestStop: { index: 1, count: 2, remainingSeconds: 0 },
+    restStop: { index: 1, count: 1 },
+    sessionTiming: timingAtStudy(60),
+  });
+  const breakMidpoint = sceneMarkup({
+    restStop: { index: 1, count: 1 },
+    sessionTiming: {
+      ...timingAtStudy(60),
+      elapsedSeconds: 90,
+      remainingSeconds: 90,
+    },
   });
 
-  assert.match(twelveSeconds, /class="travel-rest-stop-position"[^>]*data-station-x="1050"/u);
-  assert.match(twelveSeconds, /style="--station-shift:600px;--station-departure-shift:-600px"/u);
-  assert.match(sixSeconds, /class="travel-rest-stop-position"[^>]*data-station-x="750"/u);
-  assert.match(sixSeconds, /style="--station-shift:300px;--station-departure-shift:-600px"/u);
-  assert.match(breakStart, /class="travel-rest-stop-position"[^>]*data-station-x="450"/u);
-  assert.match(breakStart, /style="--station-shift:0px;--station-departure-shift:-600px"/u);
-  assert.match(breakStart, /style="--travel-shift:0px;--rest-shift:0px;--arrival-shift:0px"/u);
+  near(worldNumber(breakStart, "data-world-distance"), 1000);
+  near(worldNumber(breakMidpoint, "data-world-distance"), 1000);
+  near(stationNumber(breakStart, "rest-1", "data-station-screen-x"), 450);
+  near(stationNumber(breakMidpoint, "rest-1", "data-station-screen-x"), 450);
+  assert.doesNotMatch(breakMidpoint, /data-station-id="terminal"/u);
 });
 
-test("the approach transition remains active through the parked position and respects reduced motion", async () => {
-  const stylesheet = await readFile(resolve(projectRoot, "src/adventure/travelScene.css"), "utf8");
+test("terminal summaries show the destination centered without retaining travel motion", () => {
+  const markup = sceneMarkup({
+    arrival: { label: "Chuyến học đã kết thúc", completed: true },
+    restStop: { index: 1, count: 1 },
+    sessionTiming: undefined,
+  });
 
-  assert.match(
-    stylesheet,
-    /\.travel-scene\[data-stop-motion="true"\] \.travel-rest-stop-position\[data-stop-phase="approaching"\]\s*,\s*\.travel-scene\[data-stop-motion="true"\] \.travel-rest-stop-position\[data-stop-phase="parked"\]\s*\{\s*transition:\s*transform 1000ms linear;\s*\}/u,
-  );
-  assert.match(
-    stylesheet,
-    /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.travel-scene \.travel-rest-stop-position,[\s\S]*?transition:\s*none\s*!important;/u,
-  );
-  assert.match(stylesheet, /\.travel-scene\[data-stop-motion="true"\] \.travel-session-stop-position\[data-station-phase="departing"\][\s\S]*?transition:\s*transform 850ms/u);
-  assert.match(stylesheet, /\.travel-scene\[data-stop-motion="false"\] \.travel-session-stop-position\s*\{\s*transition:\s*none/u);
-  assert.match(stylesheet, /\.travel-scene \.travel-session-stop-position,[\s\S]*?transition:\s*none\s*!important;/u);
+  assert.equal(stationNumber(markup, "arrival", "data-station-screen-x"), 450);
+  assert.match(markup, /data-world-motion="false"/u);
+  assert.match(markup, /GA CUỐI/u);
+  assert.doesNotMatch(markup, /data-station-id="rest-1"/u);
 });
 
-test("six-car markup keeps the engine centered and applies the fitted uniform engine-pivot scale", () => {
+test("six-car trains keep the engine fixed and selection semantics intact", () => {
   const carriages = Array.from({ length: 6 }, (_, index) => ({
     id: `guest-${index + 1}`,
     name: `Toa ${index + 1}`,
     color: "#398575",
   }));
-  const markup = sceneMarkup({ carriages, ownId: "guest-1", running: true });
+  const markup = sceneMarkup({ carriages, ownId: "guest-1" });
 
-  assert.match(markup, /style="--travel-shift:0px;--rest-shift:0px;--arrival-shift:0px"/u);
-  assert.match(markup, /class="travel-train" aria-label="Đoàn tàu nhìn từ trên xuống" transform="translate\(450 210\) scale\(1\) translate\(-450 -210\)" data-train-scale="1"/u);
+  assert.match(markup, /class="travel-train" aria-label="Đoàn tàu nhìn từ trên xuống" transform="translate\(450 210\) scale\(1\) translate\(-450 -210\)"/u);
   assert.equal([...markup.matchAll(/aria-label="Toa [1-6]:/gu)].length, 6);
+  assert.match(markup, /aria-pressed="true"/u);
 });
 
-test("a terminal scene centers the destination with the engine without implying a rest break", () => {
-  const markup = sceneMarkup({
-    arrival: { label: "Chuyến học đã kết thúc", completed: true },
-    restStop: { index: 1, count: 2 },
-    running: true,
-  });
+test("hidden motion and the initial scene mount do not interpolate world position", () => {
+  const initialMount = sceneMarkup();
+  const hiddenMotion = sceneMarkup({ motionAllowed: false });
 
-  assert.match(markup, /data-moving="false"/u);
-  assert.match(markup, /data-arrival-complete="true"/u);
-  assert.match(markup, /class="travel-arrival-stop"[^>]*transform="translate\(450 18\)"/u);
-  assert.match(markup, /style="--travel-shift:0px;--rest-shift:0px;--arrival-shift:0px"/u);
-  assert.match(markup, /GA CUỐI/u);
-  assert.doesNotMatch(markup, /data-rest-index=|TRẠM NGHỈ|1\/2/u);
-});
-
-test("an early terminal scene is labeled as a stop, not the final station", () => {
-  const markup = sceneMarkup({
-    arrival: { label: "Đã dừng học", completed: false },
-  });
-
-  assert.match(markup, /ĐIỂM DỪNG/u);
-  assert.doesNotMatch(markup, /GA CUỐI/u);
-  assert.doesNotMatch(markup, /data-rest-index=|TRẠM NGHỈ/u);
-});
-
-test("the running scene uses overhead landscape shapes instead of frontal scenery", () => {
-  const markup = sceneMarkup({ running: true });
-
-  assert.match(markup, /class="map-scenery map-scenery--travel\s/u);
-  assert.match(markup, /overhead-tree-canopy/u);
-  assert.match(markup, /overhead-roof/u);
-  assert.match(markup, /travel-ridge-contour/u);
-  assert.doesNotMatch(markup, /scene-sky-cloud|travel-cloud-cover|<circle[^>]*class="tree-trunk"/u);
-});
-
-test("trip start and destination stations move around a fixed engine using session timing", () => {
-  const start = sceneMarkup({ sessionTiming: { elapsedSeconds: 0, remainingSeconds: 1800 } });
-  const underway = sceneMarkup({ sessionTiming: { elapsedSeconds: 0.5, remainingSeconds: 1799.5 } });
-  const destinationApproach = sceneMarkup({ sessionTiming: { elapsedSeconds: 1788, remainingSeconds: 12 } });
-  const destinationNear = sceneMarkup({ sessionTiming: { elapsedSeconds: 1794, remainingSeconds: 6 } });
-  const destination = sceneMarkup({ sessionTiming: { elapsedSeconds: 1800, remainingSeconds: 0 } });
-
-  assert.match(start, /data-station-phase="starting"[^>]*data-station-x="450"/u);
-  assert.match(underway, /data-station-phase="departing"[^>]*data-station-x="-150"/u);
-  assert.match(destinationApproach, /class="travel-session-stop-position travel-arrival-stop-position"[^>]*data-station-x="1050"/u);
-  assert.match(destinationNear, /data-station-x="750"/u);
-  assert.match(destination, /class="travel-session-stop-position travel-arrival-stop-position"[^>]*data-station-x="450"/u);
-  for (const markup of [start, underway, destinationApproach, destinationNear, destination]) {
-    assert.match(markup, /class="travel-train"[^>]*transform="translate\(450 210\)/u);
-  }
+  assert.match(initialMount, /data-world-interpolate="false"/u);
+  assert.match(hiddenMotion, /data-world-motion="false"/u);
+  assert.match(hiddenMotion, /data-world-interpolate="false"/u);
 });

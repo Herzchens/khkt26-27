@@ -10,13 +10,31 @@ const trip = (target = 600) => ({
   reconnect: 0, distractions: 0,
 });
 
-test('scene timing uses the full scheduled trip, including breaks, rather than the clipped save timestamp', () => {
+test('scene timing exposes study distance and fixed rest anchors while retaining wall duration', () => {
   const scheduled = { ...trip(120), breakPlan: { count: 1, seconds: 60 } };
-  assert.deepEqual(focus.tripSceneTiming(scheduled, 1000), { elapsedSeconds: 0, remainingSeconds: 180 });
-  assert.deepEqual(focus.tripSceneTiming(scheduled, 91000), { elapsedSeconds: 90, remainingSeconds: 90 });
-  assert.deepEqual(focus.tripSceneTiming(scheduled, 171000), { elapsedSeconds: 170, remainingSeconds: 10 });
-  assert.deepEqual(focus.tripSceneTiming(scheduled, 191000), { elapsedSeconds: 180, remainingSeconds: 0 });
-  assert.deepEqual(focus.tripSceneTiming(scheduled, 0), { elapsedSeconds: 0, remainingSeconds: 180 });
+  const start = focus.tripSceneTiming(scheduled, 1000);
+  const breakStart = focus.tripSceneTiming(scheduled, 61000);
+  const breakMiddle = focus.tripSceneTiming(scheduled, 91000);
+  const afterBreak = focus.tripSceneTiming(scheduled, 121000);
+  const end = focus.tripSceneTiming(scheduled, 181000);
+
+  assert.equal(start.elapsedSeconds, 0);
+  assert.equal(start.remainingSeconds, 180);
+  assert.equal(start.elapsedStudySeconds, 0);
+  assert.equal(start.targetStudySeconds, 120);
+  assert.deepEqual(start.restAnchors, [{ index: 1, count: 1, elapsedStudySeconds: 60 }]);
+
+  assert.equal(breakStart.elapsedSeconds, 60);
+  assert.equal(breakStart.remainingSeconds, 120);
+  assert.equal(breakStart.elapsedStudySeconds, 60);
+  assert.equal(breakMiddle.elapsedStudySeconds, 60);
+  assert.equal(afterBreak.elapsedStudySeconds, 60);
+  assert.equal(end.elapsedStudySeconds, 120);
+  assert.equal(end.remainingSeconds, 0);
+
+  const beforeTrip = focus.tripSceneTiming(scheduled, 0);
+  assert.equal(beforeTrip.elapsedStudySeconds, 0);
+  assert.equal(beforeTrip.remainingSeconds, 180);
 });
 
 test('blur, visibility, pagehide, and route departure record one distraction', () => {

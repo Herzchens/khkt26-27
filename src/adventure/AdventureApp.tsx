@@ -9,6 +9,7 @@ import { SceneFallback } from "./SceneFallback";
 import { BoardingTicket } from "./BoardingTicket";
 import { StudyNotesInput } from "./StudyNotesInput";
 import { StudyGuideComposer } from "./StudyGuideComposer";
+import { MaterialSourceReader } from "./MaterialSourceReader";
 import { FlipClock } from "./FlipClock";
 import { ThemeToggle } from "./theme";
 import { studyGuideDownload, studyGuideSource, type StudyGuideDraft } from "./studyGuide";
@@ -59,6 +60,7 @@ import {
 } from "../../backend/src/adventure/domain";
 import "./adventure.css";
 import "./departure.css";
+import "./studyGuide.css";
 const stations = [
   "Ga Khởi đầu",
   "Đồng cỏ Gió",
@@ -1184,7 +1186,7 @@ function AdventureWorkspace() {
                       </div>
                       {sources.map((source) => <details className="material-source" key={source.id} open={!source.reviewed}>
                         <summary>{source.name} · {source.reviewed ? "Đã kiểm tra" : "Cần kiểm tra nội dung"}</summary>
-                        <label>Nội dung nguồn · {source.name}<textarea rows={8} maxLength={source.source === "ai-generated" ? 20000 : 50000} disabled={busy} value={source.text} onChange={(e) => setSources((items) => items.map((item) => item.id === source.id ? {...item,text:e.target.value,reviewed:false} : item))} placeholder="Nhập hoặc sửa bản chép đúng của tài liệu. Không tự dịch nội dung." /></label>
+                        <MaterialSourceReader title={source.name} text={source.text} disabled={busy} maxLength={source.source === "ai-generated" ? 20000 : 50000} textareaLabel={`Nội dung nguồn · ${source.name}`} placeholder="Nhập hoặc sửa bản chép đúng của tài liệu. Không tự dịch nội dung." onChange={(text) => setSources((items) => items.map((item) => item.id === source.id ? {...item,text,reviewed:false} : item))} />
                         <div className="choice-row">
                           <button disabled={busy || source.text.trim().length < 10} onClick={() => { try { const reviewed = reviewMaterialSource(source, source.text); setSources((items) => items.map((item) => item.id === source.id ? reviewed : item)); setError(""); } catch(e) { setError(e instanceof Error ? e.message : "Không xác nhận được tài liệu."); } }}>Xác nhận nội dung đã kiểm tra</button>
                           {source.source !== "ai-generated" && <button disabled={busy || !originalFiles.current.has(source.id) || !/\.(pdf|png|jpe?g|webp)$/i.test(source.name)} onClick={() => void readHandwriting(source.id)}>Đọc bằng AI · gửi tệp này</button>}
@@ -1382,10 +1384,10 @@ function AdventureWorkspace() {
                     {active.document && (
                       <details className="panel study-notes">
                         <summary>Tài liệu của bạn · đọc ngay tại đây</summary>
-                        <pre>{active.document}</pre>
+                        <MaterialSourceReader title="Nội dung ôn tập" text={active.document} />
                       </details>
                     )}
-                    {active.sources?.map((source) => <details className="panel study-notes" key={source.id}><summary>Nguồn tài liệu · {source.name}{!source.reviewed && " · chưa kiểm tra"}</summary><pre>{source.text || "Chưa đọc được nội dung nguồn."}</pre></details>)}
+                    {active.sources?.map((source) => <details className="panel study-notes" key={source.id}><summary>Nguồn tài liệu · {source.name}{!source.reviewed && " · chưa kiểm tra"}</summary><MaterialSourceReader title={source.name} text={source.text} /></details>)}
                     {!!active.materials?.length && <div className="panel material-list" aria-label="Tệp của phiên học">{active.materials.map((file, i) => <p key={`${i}:${file.name}`}><strong>{file.name}</strong> · {file.message}</p>)}</div>}
                   </>
                 ) : (
@@ -1999,11 +2001,11 @@ function AdventureWorkspace() {
                       {!!saved.materials?.[summarySession.id]?.length && !saved.sources?.[summarySession.id]?.length && <div className="info-box"><p>Tài liệu này được lưu bằng phiên bản cũ. Khôi phục bản chép đã lưu hoặc dán nội dung đúng, rồi xác nhận làm nguồn câu hỏi.</p><button onClick={() => {const value = current.current;if(value.summarySessionId !== summarySession.id) return;commitRef.current({...value,sources:{...value.sources,[summarySession.id]:[recoveredMaterialSource(value.notes[summarySession.id] ?? "",value.materials?.[summarySession.id] ?? [])]}});}}>Khôi phục / nhập bản chép tài liệu cũ</button></div>}
                       {(saved.sources?.[summarySession.id] ?? []).map((source) => <details className="material-source" key={source.id} open={!source.reviewed}>
                         <summary>Nguồn câu hỏi · {source.name} · {source.reviewed ? "Đã kiểm tra" : "Cần kiểm tra"}</summary>
-                        <label>Bản chép tài liệu<textarea rows={7} maxLength={50000} value={source.text} onChange={(e) => {
+                        <MaterialSourceReader title={source.name} text={source.text} textareaLabel="Bản chép tài liệu" onChange={(text) => {
                           const value = current.current;
                           if(value.summarySessionId !== summarySession.id) return;
-                          commitRef.current({...value,sources:{...value.sources,[summarySession.id]:(value.sources?.[summarySession.id] ?? []).map(item => item.id === source.id ? {...item,text:e.target.value,reviewed:false} : item)}});
-                        }} /></label>
+                          commitRef.current({...value,sources:{...value.sources,[summarySession.id]:(value.sources?.[summarySession.id] ?? []).map(item => item.id === source.id ? {...item,text,reviewed:false} : item)}});
+                        }} />
                         <button disabled={source.text.trim().length < 10} onClick={() => {try {
                           const value = current.current;
                           if(value.summarySessionId !== summarySession.id) return;

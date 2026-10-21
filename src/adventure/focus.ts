@@ -72,7 +72,20 @@ export function totalDuration(s: Pick<ActiveTrip, "target" | "breakPlan">): numb
 export function tripSceneTiming(s: Pick<ActiveTrip, "started" | "target" | "breakPlan">, now: number) {
   const duration = totalDuration(s);
   const elapsedSeconds = Math.min(duration, Math.max(0, (now - s.started) / 1000));
-  return { elapsedSeconds, remainingSeconds: Math.max(0, duration - elapsedSeconds) };
+  const elapsedStudySeconds = studyElapsedSeconds(s.started, s.target, s.breakPlan, now);
+  const windows = breakWindows(s.started, s.target, s.breakPlan);
+  const restAnchors = windows.map((window) => ({
+    index: window.index,
+    count: windows.length,
+    elapsedStudySeconds: studyElapsedSeconds(s.started, s.target, s.breakPlan, window.start),
+  }));
+  return {
+    elapsedSeconds,
+    remainingSeconds: Math.max(0, duration - elapsedSeconds),
+    elapsedStudySeconds,
+    targetStudySeconds: s.target,
+    restAnchors,
+  };
 }
 
 export function breakStatus(s: Pick<ActiveTrip, "started" | "target" | "breakPlan">, now: number) {

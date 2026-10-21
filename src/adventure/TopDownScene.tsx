@@ -1,21 +1,17 @@
 import { useEffect, useId, useRef, useState } from "react";
-import type { AnimationEvent, CSSProperties } from "react";
+import type { CSSProperties } from "react";
 import {
-  completeSceneStopMotion,
   SCENE_ENGINE_CENTER_X,
-  SCENE_ARRIVAL_STATION_X,
-  SCENE_REST_STATION_X,
-  SCENE_REST_DEPARTURE_END_X,
-  sceneTrainScale,
+  SCENE_WORLD_TILE_WIDTH,
+  sceneMotionCanInterpolate,
+  sceneMotionInterpolationDurationMs,
+  sceneMotionForStudyElapsed,
+  sceneStationScreenX,
+  sceneStationWorldX,
   sceneTrainLayout,
+  sceneTrainScale,
   sceneViewBoxForZoom,
-  sceneArrivalStationX,
-  sceneDepartureStationX,
-  sceneRestStationPosition,
-  transitionSceneStop,
-  type SceneRestStop,
-  type SceneUpcomingRestStop,
-  type SceneStopPhase,
+  sceneWorldSpeedForSchedule,
 } from "./sceneMotion";
 import { MapScenery, OverheadStationFootprint } from "./mapScenery";
 import "./fog.css";
@@ -23,16 +19,29 @@ import "./travelScene.css";
 
 type Carriage = { id: string; name: string; color: string };
 type SceneArrival = { label: string; completed: boolean };
-export type SceneSessionTiming = { elapsedSeconds: number; remainingSeconds: number };
+type SceneRestStop = { index: number; count: number };
+type SceneUpcomingRestStop = SceneRestStop & { remainingSeconds: number };
+
+export type SceneRestAnchor = {
+  index: number;
+  count: number;
+  elapsedStudySeconds: number;
+};
+
+export type SceneSessionTiming = {
+  elapsedSeconds: number;
+  remainingSeconds: number;
+  elapsedStudySeconds: number;
+  targetStudySeconds: number;
+  restAnchors: SceneRestAnchor[];
+};
 
 function SceneStation({
-  centerX,
   kind,
   title,
   detail,
   accessibleLabel,
 }: {
-  centerX: number;
   kind: "rest" | "arrival" | "departure";
   title: string;
   detail: string;
@@ -44,13 +53,7 @@ function SceneStation({
       ? "travel-arrival-stop"
       : "travel-departure-stop";
   return (
-    <g
-      className={className}
-      transform={`translate(${centerX} 18)`}
-      data-station-x={centerX}
-      role="img"
-      aria-label={accessibleLabel}
-    >
+    <g className={className} role="img" aria-label={accessibleLabel}>
       <OverheadStationFootprint
         x={0}
         y={251}
@@ -93,11 +96,6 @@ export function TopDownScene({
   const [reducedMotion, setReducedMotion] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [selected, setSelected] = useState(ownId);
-  const restIndex = restStop?.index ?? null;
-  const restCount = restStop?.count ?? null;
-  const [stopPhase, setStopPhase] = useState<SceneStopPhase>(() => restIndex === null ? "travelling" : "parked");
-  const previousRestIndex = useRef(restIndex);
-  const previousRestStop = useRef<SceneRestStop | null>(restStop);
   useEffect(() => {
     let inView = true;
     const update = () => setVisible(inView && !document.hidden);
@@ -123,94 +121,131 @@ export function TopDownScene({
     };
   }, []);
   const sceneMotionAllowed = motionAllowed && visible && !reducedMotion;
+  const elapsedStudySeconds = Number.isFinite(sessionTiming?.elapsedStudySeconds)
+    ? Math.max(0, sessionTiming?.elapsedStudySeconds ?? 0)
+    : 0;
+  const cameraMotionAllowed = sceneMotionAllowed && running && !arrival;
+  const previousMotionSample = useRef<{ allowed: boolean; elapsedStudySeconds: number } | null>(null);
+  const previousSample = previousMotionSample.current;
+  const worldInterpolate = sceneMotionCanInterpolate(
+    cameraMotionAllowed,
+    previousSample?.allowed ?? false,
+    elapsedStudySeconds,
+    previousSample?.elapsedStudySeconds,
+  );
+  const worldTransitionDurationMs = worldInterpolate && previousSample
+    ? sceneMotionInterpolationDurationMs(elapsedStudySeconds, previousSample.elapsedStudySeconds)
+    : 0;
   useEffect(() => {
-    const previousIndex = previousRestIndex.current;
-    setStopPhase((current) => transitionSceneStop(
-      current,
-      previousIndex,
-      restIndex,
-      sceneMotionAllowed,
-    ));
-    previousRestIndex.current = restIndex;
-    if (restIndex !== null && restCount !== null)
-      previousRestStop.current = { index: restIndex, count: restCount };
-    else if (previousIndex !== null && !sceneMotionAllowed) previousRestStop.current = null;
-  }, [restIndex, restCount, sceneMotionAllowed]);
+    previousMotionSample.current = { allowed: cameraMotionAllowed, elapsedStudySeconds };
+  }, [cameraMotionAllowed, elapsedStudySeconds]);
+
+  const targetStudySeconds = Number.isFinite(sessionTiming?.targetStudySeconds)
+    ? Math.max(0, sessionTiming?.targetStudySeconds ?? 0)
+    : 0;
+  const restAnchors = sessionTiming?.restAnchors ?? [];
+  const worldSpeed = sceneWorldSpeedForSchedule(
+    targetStudySeconds,
+    restAnchors.map((anchor) => anchor.elapsedStudySeconds),
+  );
+  const worldDistance = arrival
+    ? 0
+    : sceneMotionForStudyElapsed(elapsedStudySeconds, worldSpeed).distance;
+  const periodicOrigin = Math.floor(worldDistance / SCENE_WORLD_TILE_WIDTH) * SCENE_WORLD_TILE_WIDTH;
+  const cameraOffset = -worldDistance;
+  const worldMotion = Boolean(sceneMotionAllowed && running && !arrival && sessionTiming);
+  const visibleX = (x: number) => x >= -150 && x <= 1100;
   const engineX = SCENE_ENGINE_CENTER_X;
-  const { travelX, travelShift, restShift, arrivalShift } = sceneTrainLayout(engineX);
+  const trainLayout = sceneTrainLayout(engineX);
   const viewBox = sceneViewBoxForZoom(zoom);
   const viewBoxLeft = Number(viewBox.split(" ", 1)[0]);
   const trainScale = sceneTrainScale(
     carriages.length,
-    travelX,
+    engineX,
     viewBoxLeft,
   );
   const chosen = carriages.find((car) => car.id === selected) ?? carriages[0];
-  const finalStationX = !arrival && !restStop && sessionTiming
-    ? sceneArrivalStationX(sessionTiming.remainingSeconds)
+  const terminalScreenX = sessionTiming && targetStudySeconds > 0
+    ? sceneStationScreenX(targetStudySeconds, elapsedStudySeconds, worldSpeed)
     : null;
-  const departureStationX = !arrival && !restStop && finalStationX === null && sessionTiming
-    ? sceneDepartureStationX(sessionTiming.elapsedSeconds)
-    : null;
-  const finalStationArrived = finalStationX !== null && sessionTiming?.remainingSeconds === 0;
-  const moving = !arrival && !finalStationArrived && running && sceneMotionAllowed;
-  const arrivalLabel = arrival?.label.trim() || (arrival?.completed ? "Đã đến ga cuối." : "Chuyến đã dừng.");
-  const restStation = sceneRestStationPosition(
-    restStop,
-    upcomingRestStop,
-    previousRestStop.current,
-    stopPhase,
+  const finalStationArrived = Boolean(
+    !arrival && terminalScreenX !== null && elapsedStudySeconds >= targetStudySeconds,
   );
+  const approachingRestAnchor = restStop === null && upcomingRestStop
+    ? restAnchors.find((anchor) => {
+        const x = sceneStationScreenX(anchor.elapsedStudySeconds, elapsedStudySeconds, worldSpeed);
+        return x > engineX && x <= 1050;
+      }) ?? null
+    : null;
+  const approachingTerminal = terminalScreenX !== null && terminalScreenX > engineX && terminalScreenX <= 1050;
+  const moving = !arrival && running && sceneMotionAllowed && !finalStationArrived;
+  const arrivalLabel = arrival?.label.trim() || (arrival?.completed ? "Đã đến ga cuối." : "Chuyến đã dừng.");
   const sceneStatus = arrival
     ? arrivalLabel
-    : finalStationX !== null
-      ? finalStationArrived ? "đã đến ga cuối" : "ga cuối đang đến gần"
-    : restStation.phase === "approaching"
-    ? "trạm nghỉ đang đến gần"
-    : stopPhase === "parked" && restStop
-      ? `tàu đang dừng tại trạm nghỉ ${restStop.index} / ${restStop.count}`
-      : stopPhase === "departing"
-        ? "trạm nghỉ đang rời đi"
-        : moving
-          ? "cảnh vật đang trôi quanh tàu"
-          : "cảnh vật đang dừng";
-  const visibleRestStop = arrival ? null : restStation.stop;
-  const renderedStopPhase = arrival ? "arrived" : stopPhase;
-  const sessionStation = arrival
-    ? {
-        kind: "arrival" as const,
-        x: SCENE_ARRIVAL_STATION_X,
-        phase: "arrived",
-        title: arrival.completed ? "GA CUỐI" : "ĐIỂM DỪNG",
-        detail: arrival.completed ? "ĐÃ HOÀN THÀNH" : "KẾT THÚC SỚM",
-        accessibleLabel: `${arrival.completed ? "Ga cuối" : "Điểm dừng cuối"}: ${arrivalLabel}`,
-      }
-    : finalStationX !== null
-      ? {
-          kind: "arrival" as const,
-          x: finalStationX,
-          phase: sessionTiming?.remainingSeconds === 0 ? "arrived" : "approaching",
-          title: "GA CUỐI",
-          detail: `CÒN ${Math.ceil(sessionTiming?.remainingSeconds ?? 0)} GIÂY`,
-          accessibleLabel: `Ga cuối, còn ${Math.ceil(sessionTiming?.remainingSeconds ?? 0)} giây`,
-        }
-      : departureStationX !== null
-        ? {
-            kind: "departure" as const,
-            x: departureStationX,
-            phase: sessionTiming?.elapsedSeconds === 0 ? "starting" : "departing",
-            title: "GA KHỞI ĐẦU",
-            detail: "ĐOÀN KHỞI HÀNH",
-            accessibleLabel: "Ga khởi đầu của chuyến học",
-          }
-        : null;
-  const finishStopMotion = (event: AnimationEvent<SVGGElement>) => {
-    if (event.animationName === "travel-stop-depart") {
-      setStopPhase((phase) => completeSceneStopMotion(phase));
-      if (event.animationName === "travel-stop-depart" && restIndex === null)
-        previousRestStop.current = null;
-    }
-  };
+    : finalStationArrived
+      ? "đã đến ga cuối"
+      : approachingTerminal
+        ? "ga cuối đang đến gần"
+        : approachingRestAnchor
+          ? "trạm nghỉ đang đến gần"
+          : restStop
+            ? `tàu đang dừng tại trạm nghỉ ${restStop.index} / ${restStop.count}`
+            : moving
+              ? "cảnh vật đang trôi quanh tàu"
+              : "cảnh vật đang dừng";
+  const terminalDetail = targetStudySeconds > elapsedStudySeconds
+    ? `CÒN ${Math.ceil(targetStudySeconds - elapsedStudySeconds)} GIÂY HỌC`
+    : "ĐÃ HOÀN THÀNH";
+  const stationAnchors = arrival
+    ? []
+    : sessionTiming
+      ? [
+          { id: "start", anchor: 0, kind: "departure" as const, title: "GA KHỞI ĐẦU", detail: "ĐOÀN KHỞI HÀNH", label: "Ga khởi đầu của chuyến học" },
+          ...restAnchors.map((anchor) => ({
+            id: `rest-${anchor.index}`,
+            anchor: anchor.elapsedStudySeconds,
+            kind: "rest" as const,
+            title: "TRẠM NGHỈ",
+            detail: `${anchor.index}/${anchor.count}`,
+            label: `Trạm nghỉ ${anchor.index} / ${anchor.count}`,
+          })),
+          ...(targetStudySeconds > 0 ? [{
+            id: "terminal",
+            anchor: targetStudySeconds,
+            kind: "arrival" as const,
+            title: "GA CUỐI",
+            detail: terminalDetail,
+            label: `Ga cuối, ${terminalDetail.toLowerCase()}`,
+          }] : []),
+        ].filter(({ anchor }) => visibleX(sceneStationScreenX(anchor, elapsedStudySeconds, worldSpeed)))
+      : restStop
+        ? [{
+            id: `rest-${restStop.index}`,
+            anchor: 0,
+            kind: "rest" as const,
+            title: "TRẠM NGHỈ",
+            detail: `${restStop.index}/${restStop.count}`,
+            label: `Trạm nghỉ ${restStop.index} / ${restStop.count}`,
+          }]
+        : [];
+  const worldStyle = {
+    "--world-camera-offset": `${arrival ? 0 : cameraOffset}px`,
+    "--world-transition-duration": `${worldTransitionDurationMs}ms`,
+  } as CSSProperties;
+  const renderedStopPhase = restStop ? "parked" : "travelling";
+  const captionStatus = arrival
+    ? arrivalLabel
+    : fogStrength > 0.25
+      ? "☁ Toa đang chờ bạn quay lại"
+      : exploration >= 1
+        ? "Đã khám phá toàn tuyến"
+        : approachingRestAnchor
+          ? "Trạm nghỉ đang đến gần."
+          : restStop
+            ? "Tàu nghỉ tại trạm " + restStop.index + " / " + restStop.count + "."
+            : running
+              ? "Mỗi phút học mở thêm một vùng đất."
+              : "Cảnh dừng · tiến độ đã học được giữ.";
   return (
     <section
       ref={element}
@@ -218,14 +253,15 @@ export function TopDownScene({
       aria-label={arrival ? `Cảnh kết thúc: ${arrivalLabel}` : "Cảnh tàu 2D nhìn thẳng từ trên xuống"}
       data-moving={moving}
       data-stop-phase={renderedStopPhase}
-      data-rest-index={arrival ? undefined : visibleRestStop?.index}
+      data-rest-index={arrival ? undefined : restStop?.index}
       data-stop-motion={arrival ? false : sceneMotionAllowed}
       data-arrival={arrival ? "true" : undefined}
       data-arrival-complete={arrival ? arrival.completed : undefined}
-      data-terminal-approaching={finalStationX !== null && !finalStationArrived ? "true" : undefined}
+      data-terminal-approaching={approachingTerminal && !finalStationArrived ? "true" : undefined}
       data-terminal-arrived={finalStationArrived ? "true" : undefined}
       data-session-elapsed={sessionTiming?.elapsedSeconds}
       data-session-remaining={sessionTiming?.remainingSeconds}
+      data-session-study-elapsed={elapsedStudySeconds}
     >
       <div className="travel-toolbar">
         <span>{sceneStatus.charAt(0).toUpperCase() + sceneStatus.slice(1)}</span>
@@ -252,63 +288,75 @@ export function TopDownScene({
             <rect x="3" y="2" width="8" height="46" rx="3" fill="#9a7654" />
           </pattern>
         </defs>
-        <rect width="900" height="420" fill="#c4dda0" />
-        <MapScenery kind="travel" coast={coast} />
-        <rect y="183" width="900" height="54" fill="#8b7355" opacity=".45" />
-        <rect y="188" width="900" height="44" fill="#c19b6b" />
-        <g className="travel-track" aria-hidden="true">
-          <rect x="0" y="188" width="1800" height="44" fill={`url(#${id}-sleepers)`} />
+        <rect className="travel-ground-base" width="900" height="420" fill="#c4dda0" />
+        <g
+          className="travel-world-motion"
+          data-world-motion={worldMotion}
+          data-world-interpolate={worldInterpolate}
+          data-world-distance={arrival ? 0 : worldDistance}
+          data-world-camera-offset={arrival ? 0 : cameraOffset}
+          data-world-periodic-origin={arrival ? 0 : periodicOrigin}
+          style={worldStyle}
+        >
+          <g
+            className="travel-periodic-world"
+            transform={"translate(" + (arrival ? 0 : periodicOrigin) + " 0)"}
+            aria-hidden="true"
+          >
+            <MapScenery kind="travel" coast={coast} />
+            <rect x="-900" y="183" width="2700" height="54" fill="#8b7355" opacity=".45" />
+            <rect x="-900" y="188" width="2700" height="44" fill="#c19b6b" />
+            <g className="travel-rail-ties">
+              <rect x="-900" y="188" width="2700" height="44" fill={"url(#" + id + "-sleepers)"} />
+            </g>
+            <path d="M-900 194 H1800 M-900 226 H1800" stroke="#5b6260" strokeWidth="7" />
+            <path d="M-900 193 H1800 M-900 227 H1800" stroke="#eee1bd" strokeWidth="2.5" />
+          </g>
+          {arrival ? (
+            <g
+              className="travel-station-position"
+              transform={"translate(" + SCENE_ENGINE_CENTER_X + " 18)"}
+              data-station-id="arrival"
+              data-station-world-x={SCENE_ENGINE_CENTER_X}
+              data-station-screen-x={SCENE_ENGINE_CENTER_X}
+            >
+              <SceneStation
+                kind="arrival"
+                title={arrival.completed ? "GA CUỐI" : "ĐIỂM DỪNG"}
+                detail={arrival.completed ? "ĐÃ HOÀN THÀNH" : "KẾT THÚC SỚM"}
+                accessibleLabel={(arrival.completed ? "Ga cuối" : "Điểm dừng cuối") + ": " + arrivalLabel}
+              />
+            </g>
+          ) : stationAnchors.map((station) => {
+            const screenX = sceneStationScreenX(station.anchor, elapsedStudySeconds, worldSpeed);
+            const worldX = sceneStationWorldX(station.anchor, worldSpeed);
+            return (
+              <g
+                key={station.id}
+                className="travel-station-position"
+                transform={"translate(" + worldX + " 18)"}
+                data-station-id={station.id}
+                data-station-world-x={worldX}
+                data-station-screen-x={screenX}
+                data-station-anchor-study-seconds={station.anchor}
+              >
+                <SceneStation
+                  kind={station.kind}
+                  title={station.title}
+                  detail={station.detail}
+                  accessibleLabel={station.label}
+                />
+              </g>
+            );
+          })}
         </g>
-        <path d="M0 194 H900 M0 226 H900" stroke="#5b6260" strokeWidth="7" />
-        <path d="M0 193 H900 M0 227 H900" stroke="#eee1bd" strokeWidth="2.5" />
-        {visibleRestStop && restStation.x !== null && (
-          <g
-            className="travel-rest-stop-position"
-            data-stop-phase={restStation.phase}
-            data-station-x={restStation.x}
-            data-rest-index={visibleRestStop.index}
-            style={{
-              "--station-shift": `${restStation.x - SCENE_REST_STATION_X}px`,
-              "--station-departure-shift": `${SCENE_REST_DEPARTURE_END_X - SCENE_REST_STATION_X}px`,
-            } as CSSProperties}
-            onAnimationEnd={finishStopMotion}
-          >
-            <SceneStation
-              centerX={SCENE_REST_STATION_X}
-              kind="rest"
-              title="TRẠM NGHỈ"
-              detail={`${visibleRestStop.index}/${visibleRestStop.count}`}
-              accessibleLabel={`Trạm nghỉ ${visibleRestStop.index} / ${visibleRestStop.count}`}
-            />
-          </g>
-        )}
-        {sessionStation && (
-          <g
-            className={`travel-session-stop-position travel-${sessionStation.kind}-stop-position`}
-            data-station-phase={sessionStation.phase}
-            data-station-x={sessionStation.x}
-            style={{
-              "--station-shift": `${sessionStation.x - SCENE_ENGINE_CENTER_X}px`,
-              "--station-departure-shift": `${SCENE_REST_DEPARTURE_END_X - SCENE_ENGINE_CENTER_X}px`,
-            } as CSSProperties}
-          >
-            <SceneStation
-              centerX={SCENE_ENGINE_CENTER_X}
-              kind={sessionStation.kind}
-              title={sessionStation.title}
-              detail={sessionStation.detail}
-              accessibleLabel={sessionStation.accessibleLabel}
-            />
-          </g>
-        )}
         <g className="travel-train-motion">
           <g
             className="travel-train-position"
             data-stop-phase={renderedStopPhase}
             style={{
-              "--travel-shift": `${travelShift}px`,
-              "--rest-shift": `${restShift}px`,
-              "--arrival-shift": `${arrivalShift}px`,
+              "--travel-shift": `${trainLayout.travelShift}px`,
+              "--arrival-shift": `${trainLayout.arrivalShift}px`,
             } as CSSProperties}
           >
           <g
@@ -388,23 +436,7 @@ export function TopDownScene({
       </svg>
       <div className="travel-caption">
         <span>{chosen?.name} · {carriages.length} toa</span>
-        <span>
-          {arrival
-            ? arrivalLabel
-            : fogStrength > 0.25
-            ? "☁ Toa đang chờ bạn quay lại"
-            : exploration >= 1
-              ? "Đã khám phá toàn tuyến"
-                : restStation.phase === "approaching"
-                ? "Trạm nghỉ đang đến gần."
-                : stopPhase === "departing"
-                  ? "Trạm nghỉ đang rời đi."
-                  : restStop
-                    ? `Tàu nghỉ tại trạm ${restStop.index} / ${restStop.count}.`
-              : running
-                ? "Mỗi phút học mở thêm một vùng đất."
-                : "Cảnh dừng · tiến độ đã học được giữ."}
-        </span>
+        <span>{captionStatus}</span>
       </div>
     </section>
   );

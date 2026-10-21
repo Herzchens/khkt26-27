@@ -43,9 +43,26 @@ function renderBlock(block: StudyGuideBlock, key: string): ReactNode {
   }
 }
 
-export function StudyGuideArticle({ title, text }: { title: string; text: string }) {
+export function StudyGuideArticle({ title, text, label = "Bản xem trước" }: { title: string; text: string; label?: string }) {
   const blocks = parseStudyGuideMarkdown(text);
-  return createElement("article", { className: "study-guide__article", "aria-label": `Bản xem trước: ${title}`, tabIndex: 0 },
+  const titleText = title.trim().replace(/\s+/gu, " ").toLocaleLowerCase("vi");
+  const firstBlock = blocks[0];
+  const firstHeadingText = firstBlock?.type === "heading"
+    ? firstBlock.children.map(inlineText).join("").trim().replace(/\s+/gu, " ").toLocaleLowerCase("vi")
+    : undefined;
+  const content = firstHeadingText === titleText ? blocks.slice(1) : blocks;
+  return createElement("article", { className: "study-guide__article", "aria-label": `${label}: ${title}`, tabIndex: 0 },
     createElement("h2", null, title),
-    createElement("div", { className: "study-guide__article-body" }, blocks.map((block, index) => renderBlock(block, `guide-block-${index}`))));
+    createElement("div", { className: "study-guide__article-body" }, content.map((block, index) => renderBlock(block, `guide-block-${index}`))));
+}
+
+function inlineText(node: StudyGuideInlineNode): string {
+  switch (node.type) {
+    case "text":
+    case "code": return node.text;
+    case "strong":
+    case "emphasis":
+    case "link": return node.children.map(inlineText).join("");
+    case "math": return node.parts.map(part => part.text).join("");
+  }
 }

@@ -1,137 +1,92 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  completeSceneStopMotion,
+  sceneMotionCanInterpolate,
+  sceneMotionForStudyElapsed,
+  sceneMotionInterpolationDurationMs,
+  sceneStationScreenX,
+  sceneStationWorldX,
   sceneTrainLayout,
   sceneTrainScale,
   sceneViewBoxForZoom,
-  sceneRestStationPosition,
-  sceneUpcomingRestStationX,
-  sceneRestStopForPhase,
-  SCENE_REST_STATION_X,
-  SCENE_TRAIN_ARRIVAL_X,
-  transitionSceneStop,
+  sceneWorldSpeedForSchedule,
 } from "../src/adventure/sceneMotion.ts";
 
-test("the station settles at the centered engine when its scheduled break starts", () => {
-  const parked = transitionSceneStop("travelling", null, 1, true);
-  assert.equal(parked, "parked");
-  assert.equal(completeSceneStopMotion(parked), "parked");
-
-  const departing = transitionSceneStop("parked", 1, null, true);
-  assert.equal(departing, "departing");
-  assert.equal(completeSceneStopMotion(departing), "travelling");
-});
-
-test("rerenders within the same break keep the station centered without replaying motion", () => {
-  assert.equal(transitionSceneStop("parked", 1, 1, true), "parked");
-});
-
-test("away or reduced-motion state lands at a stable station pose without animating", () => {
-  assert.equal(transitionSceneStop("travelling", null, 1, false), "parked");
-  assert.equal(transitionSceneStop("parked", 1, null, false), "travelling");
-  assert.equal(transitionSceneStop("departing", 1, 1, false), "parked");
-});
-
-test("the station remains visible for departure and clears after the train leaves", () => {
-  const lastStop = { index: 2, count: 3 };
-
-  assert.deepEqual(sceneRestStopForPhase(null, lastStop, "departing"), lastStop);
-  assert.deepEqual(sceneRestStopForPhase(lastStop, null, "departing"), lastStop);
-  assert.equal(sceneRestStopForPhase(null, lastStop, "travelling"), null);
-});
-
-test("the engine stays at the viewport center in travel and terminal views at every supported zoom", () => {
-  assert.equal(sceneViewBoxForZoom(1.5, false), "150 70 600 280");
-  assert.equal(sceneViewBoxForZoom(1.5, true), "150 70 600 280");
+test("the engine remains centered while the train fits every supported zoom", () => {
+  assert.equal(sceneViewBoxForZoom(1.5), "150 70 600 280");
 
   for (let count = 1; count <= 6; count += 1) {
     const engineX = 450;
     const train = sceneTrainLayout(engineX);
-    const leftExtent = count * 64 + 34;
-    assert.equal(train.travelX, engineX, `${count} cars keep the engine centered while travelling`);
+    assert.equal(train.travelX, engineX);
     assert.equal(train.travelShift, 0);
     assert.equal(train.restShift, 0);
+    assert.equal(train.arrivalShift, 0);
 
     for (const zoom of [1, 1.25, 1.5]) {
-      const restView = sceneViewBoxForZoom(zoom, false).split(" ").map(Number);
-      const restLeft = restView[0];
-      const restRight = restLeft + restView[2];
-      const centeredScale = sceneTrainScale(count, engineX, restLeft);
-      const travelTail = engineX - leftExtent * centeredScale;
-      const restTail = SCENE_REST_STATION_X - leftExtent * centeredScale;
-      assert.equal((restLeft + restRight) / 2, engineX, `engine stays at viewport center at zoom ${zoom}`);
-      assert.ok(travelTail >= restLeft - 0.001, `${count} cars at centered travel zoom ${zoom}`);
-      assert.ok(restTail >= restLeft - 0.001, `${count} cars at the centered rest stop at zoom ${zoom}`);
-      assert.ok(SCENE_REST_STATION_X + 49 <= restRight, `${count} cars keep the rest engine visible at zoom ${zoom}`);
-
-      const terminalView = sceneViewBoxForZoom(zoom, true).split(" ").map(Number);
-      const terminalLeft = terminalView[0];
-      const terminalRight = terminalLeft + terminalView[2];
-      const terminalScale = sceneTrainScale(count, SCENE_TRAIN_ARRIVAL_X, terminalLeft);
-      const terminalTail = SCENE_TRAIN_ARRIVAL_X - leftExtent * terminalScale;
-      assert.equal((terminalLeft + terminalRight) / 2, engineX, `terminal view remains centered at zoom ${zoom}`);
-      assert.ok(terminalTail >= terminalLeft - 0.001, `${count} cars at the terminal at zoom ${zoom}`);
-      assert.ok(SCENE_TRAIN_ARRIVAL_X + 49 <= terminalRight, `${count} cars keep the terminal engine visible at zoom ${zoom}`);
+      const [left, , width] = sceneViewBoxForZoom(zoom).split(" ").map(Number);
+      const scale = sceneTrainScale(count, engineX, left);
+      const right = left + width;
+      const leftExtent = count * 64 + 34;
+      assert.equal((left + right) / 2, 450);
+      assert.ok(engineX - leftExtent * scale >= left - 0.001);
+      assert.ok(engineX + 49 <= right);
     }
   }
 });
 
-test("the trip start and destination stations meet the centered engine and approach from the right", async () => {
-  const { sceneArrivalStationX, sceneDepartureStationX } = await import("../src/adventure/sceneMotion.ts");
-
-  assert.equal(sceneDepartureStationX(0), 450);
-  assert.equal(sceneDepartureStationX(0.5), -150);
-  assert.equal(sceneDepartureStationX(2), null);
-  assert.equal(sceneArrivalStationX(12), 1050);
-  assert.equal(sceneArrivalStationX(6), 750);
-  assert.equal(sceneArrivalStationX(0), 450);
-  assert.equal(sceneArrivalStationX(-1), null);
-  assert.equal(sceneArrivalStationX(13), null);
-  assert.equal(sceneArrivalStationX(Number.NaN), null);
+test("schedule chooses one shared world speed that keeps adjacent footprints apart", () => {
+  assert.equal(sceneWorldSpeedForSchedule(120, [60]), 50 / 3);
+  assert.equal(sceneWorldSpeedForSchedule(11, [5.5]), 40);
+  assert.equal(sceneWorldSpeedForSchedule(11, [5.5, 5.5]), 40);
+  assert.equal(sceneWorldSpeedForSchedule(0, []), 50 / 3);
 });
 
-test("the upcoming rest station glides in from the right during the final twelve seconds", () => {
-  assert.equal(sceneUpcomingRestStationX(null), null);
-  assert.equal(sceneUpcomingRestStationX({ remainingSeconds: 13 }), null);
-  assert.equal(sceneUpcomingRestStationX({ remainingSeconds: 12 }), 1050);
-  assert.equal(sceneUpcomingRestStationX({ remainingSeconds: 6 }), 750);
-  assert.equal(sceneUpcomingRestStationX({ remainingSeconds: 0 }), 450);
-  assert.equal(sceneUpcomingRestStationX({ remainingSeconds: -3 }), null);
-  assert.equal(sceneUpcomingRestStationX({ remainingSeconds: Number.NaN }), null);
+test("start, rest, and terminal footprints share terrain displacement", () => {
+  const speed = 50 / 3;
+  const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 0.0001);
+
+  assert.equal(sceneStationWorldX(0, speed), 450);
+  near(sceneStationScreenX(0, 2, speed), 416.6666666667);
+
+  // Thirty-six study seconds before the rest anchor, its station is 600 units ahead.
+  assert.equal(sceneStationScreenX(60, 24, speed), 1050);
+  near(sceneStationScreenX(60, 60, speed), 450);
+  near(sceneStationScreenX(60, 61, speed), 433.3333333333);
+
+  // The terminal uses the same world anchor and remains centered at the target.
+  assert.equal(sceneStationScreenX(120, 84, speed), 1050);
+  near(sceneStationScreenX(120, 120, speed), 450);
 });
 
-test("the active rest station takes precedence and a completed stop exits fully left", () => {
-  const previous = { index: 1, count: 2 };
-  const current = { index: 2, count: 2 };
-  assert.deepEqual(sceneRestStationPosition({ index: 1, count: 2 }, null, previous, "parked"), {
-    stop: previous,
-    x: 450,
-    phase: "parked",
-  });
-  assert.deepEqual(sceneRestStationPosition(current, null, previous, "departing"), {
-    stop: current,
-    x: 450,
-    phase: "parked",
-  });
-  assert.deepEqual(sceneRestStationPosition(null, { index: 2, count: 2, remainingSeconds: 6 }, null, "travelling"), {
-    stop: { index: 2, count: 2 },
-    x: 750,
-    phase: "approaching",
-  });
-  assert.deepEqual(sceneRestStationPosition(null, { index: 2, count: 2, remainingSeconds: -1 }, null, "travelling"), {
-    stop: null,
-    x: null,
-    phase: "travelling",
-  });
-  assert.deepEqual(sceneRestStationPosition(null, null, previous, "departing"), {
-    stop: previous,
-    x: -150,
-    phase: "departing",
-  });
-  assert.deepEqual(sceneRestStationPosition(null, null, previous, "travelling"), {
-    stop: null,
-    x: null,
-    phase: "travelling",
-  });
+test("periodic terrain reindexes without reversing its shared camera movement", () => {
+  const speed = 50 / 3;
+  const beforeWrap = sceneMotionForStudyElapsed(53.99, speed);
+  const afterWrap = sceneMotionForStudyElapsed(54.01, speed);
+
+  assert.ok(Math.abs(beforeWrap.distance - 899.8333333333334) < 0.0001);
+  assert.equal(beforeWrap.cameraOffset, -beforeWrap.distance);
+  assert.equal(beforeWrap.periodicOrigin, 0);
+  assert.ok(Math.abs(afterWrap.distance - 900.1666666666667) < 0.0001);
+  assert.equal(afterWrap.cameraOffset, -afterWrap.distance);
+  assert.equal(afterWrap.periodicOrigin, 900);
+
+  const wrappedDelta = ((afterWrap.periodicOffset - beforeWrap.periodicOffset + 450) % 900 + 900) % 900 - 450;
+  assert.ok(Math.abs(wrappedDelta + 0.3333333333333) < 0.0001);
+});
+
+test("world interpolation is suppressed on mount and after motion resumes", () => {
+  assert.equal(sceneMotionCanInterpolate(true, false, 1, 0), false);
+  assert.equal(sceneMotionCanInterpolate(false, true, 1, 0), false);
+  assert.equal(sceneMotionCanInterpolate(true, true, 1, 0), true);
+});
+
+test("world interpolation snaps across clock jumps and backward samples", () => {
+  assert.equal(sceneMotionCanInterpolate(true, true, 42, 40), true);
+  assert.equal(sceneMotionCanInterpolate(true, true, 42.01, 40), false);
+  assert.equal(sceneMotionCanInterpolate(true, true, 39, 40), false);
+  assert.equal(sceneMotionCanInterpolate(true, true, 60, 60), true);
+  assert.equal(sceneMotionInterpolationDurationMs(42, 40), 2000);
+  assert.equal(sceneMotionInterpolationDurationMs(60, 60), 0);
+  assert.equal(sceneMotionInterpolationDurationMs(39, 40), 0);
 });

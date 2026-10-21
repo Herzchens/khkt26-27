@@ -55,6 +55,13 @@ test('treats raw HTML as text and omits unsafe Markdown links while keeping HTTP
   assert.match(html, /<a href="https:\/\/example\.com" target="_blank" rel="noopener noreferrer">nguồn<\/a>/);
 });
 
+test('does not repeat a document title when the first Markdown heading already matches it', () => {
+  const html = renderArticle('Ôn tập tế bào', '# Ôn tập tế bào\n\n## Màng tế bào');
+
+  assert.equal((html.match(/<h2>Ôn tập tế bào<\/h2>/g) ?? []).length, 1);
+  assert.match(html, /<h3>Màng tế bào<\/h3>/);
+});
+
 test('switches between preview and editing without replacing the original editable Markdown draft', () => {
   const draft = { title: 'Ôn Sinh học', text: '## Tế bào\nMàng tế bào điều hòa trao đổi chất.' };
   const initial = createStudyGuideReviewState();

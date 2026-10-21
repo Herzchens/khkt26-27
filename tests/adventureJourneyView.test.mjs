@@ -11,6 +11,7 @@ const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 let vite;
 let BoardingTicket;
 let JourneyView;
+let tripSceneTiming;
 
 before(async () => {
   vite = await createServer({
@@ -22,6 +23,7 @@ before(async () => {
   });
   ({ BoardingTicket } = await vite.ssrLoadModule("/src/adventure/BoardingTicket.tsx"));
   ({ JourneyView } = await vite.ssrLoadModule("/src/adventure/JourneyView.tsx"));
+  ({ tripSceneTiming } = await vite.ssrLoadModule("/src/adventure/focus.ts"));
 });
 
 after(async () => {
@@ -100,11 +102,14 @@ test("journey view uses the map and active 2D scene without exposing a 3D switch
     ...props,
     focusState: "focus",
     upcomingRestStop: { index: 1, count: 2, remainingSeconds: 12 },
+    sessionTiming: tripSceneTiming({ started: 0, target: 180, breakPlan: { count: 2, seconds: 60 } }, 48000),
   }));
 
   assert.match(mapMarkup, /Bản đồ tiến trình từ trên xuống/u);
   assert.match(focusMarkup, /Cảnh tàu 2D nhìn thẳng từ trên xuống/u);
-  assert.match(upcomingRestMarkup, /data-station-x="1050"/u);
+  const stationX = upcomingRestMarkup.match(/data-station-id="rest-1"[^>]*data-station-screen-x="([^"]+)"/u);
+  assert.ok(stationX, "the scheduled rest station reaches the running scene");
+  assert.ok(Math.abs(Number(stationX[1]) - 650) < 0.001, "the rest station shares the scenery speed");
   for (const markup of [mapMarkup, focusMarkup]) {
     assert.doesNotMatch(markup, /camera-switch|scene-3d|train-canvas|Cảnh 3D/u);
   }
@@ -116,9 +121,11 @@ test("journey view forwards total session timing to the active scene", () => {
     carriages: [{ id: "guest", name: "Toa Mây", color: "#398575" }],
     ownId: "guest",
     focusState: "focus",
-    sessionTiming: { elapsedSeconds: 90, remainingSeconds: 1710 },
+    sessionTiming: tripSceneTiming({ started: 0, target: 1800 }, 90000),
   }));
 
   assert.match(markup, /data-session-elapsed="90"/u);
   assert.match(markup, /data-session-remaining="1710"/u);
+  assert.match(markup, /data-session-study-elapsed="90"/u);
+  assert.match(markup, /data-world-distance="1500"/u);
 });
