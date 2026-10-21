@@ -6,7 +6,6 @@
   --ticket-paper: #f1ede3;
   --ticket-stub: #e8e2d7;
   --ticket-line: #c9c8ba;
-  --ticket-cutout: #f6f6f1;
   position: relative;
   display: grid;
   width: 100%;
@@ -193,28 +192,6 @@
   border-left: 1px dashed #aeb4a7;
 }
 
-.boarding-ticket__stub::before,
-.boarding-ticket__stub::after {
-  position: absolute;
-  left: -13px;
-  z-index: 2;
-  width: 25px;
-  height: 25px;
-  background: var(--ticket-cutout);
-  border: 1px solid #c6c7ba;
-  border-radius: 50%;
-  content: "";
-  pointer-events: none;
-}
-
-.boarding-ticket__stub::before {
-  top: -43px;
-}
-
-.boarding-ticket__stub::after {
-  bottom: -43px;
-}
-
 .boarding-ticket__trip-code {
   display: grid;
   min-width: 0;
@@ -359,21 +336,6 @@
     padding: 12px 18px 12px;
     border-top: 1px dashed #aeb4a7;
     border-left: 0;
-  }
-
-  .boarding-ticket__stub::before,
-  .boarding-ticket__stub::after {
-    top: -13px;
-    bottom: auto;
-  }
-
-  .boarding-ticket__stub::before {
-    left: 10px;
-  }
-
-  .boarding-ticket__stub::after {
-    right: 10px;
-    left: auto;
   }
 
   .boarding-ticket__stats {

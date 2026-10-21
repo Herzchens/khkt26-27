@@ -50,6 +50,15 @@ describe("material reading request validation", () => {
     const oversized = "A".repeat(MAX_MATERIAL_BASE64_CHARS + 1);
     expect(materialReadRequestSchema.safeParse({ mimeType: "application/pdf", data: oversized }).success).toBe(false);
   });
+
+  it("defaults contextual reconstruction off and bounds learner context", () => {
+    expect(materialReadRequestSchema.parse({ mimeType: "application/pdf", data: Buffer.from("%PDF-").toString("base64") }))
+      .toMatchObject({ recoverContext: false });
+    expect(materialReadRequestSchema.safeParse({
+      mimeType: "application/pdf", data: Buffer.from("%PDF-").toString("base64"),
+      recoverContext: true, context: "x".repeat(1001),
+    }).success).toBe(false);
+  });
 });
 
 describe("Gemini material reader", () => {
@@ -83,6 +92,47 @@ describe("Gemini material reader", () => {
     expect(content).toContain('"mimeType":"application/pdf"');
     expect(content).toContain(data);
     expect(content).not.toContain("test-only-private-key");
+  });
+
+  it("marks contextual reconstructions as unverified even when Gemini claims the page is complete", async () => {
+    config.GEMINI_API_KEY = "test-only-private-key";
+    const data = await pdf(1);
+    generateContent.mockResolvedValue({ text: response([
+      { pageNumber: 1, text: "Quá trình [suy luận: quang hợp] tạo ra chất hữu cơ." },
+    ], true) });
+
+    const result = await readMaterialDocument({
+      mimeType: "application/pdf", data, recoverContext: true,
+      context: "Bài đang học về sinh học thực vật.",
+    });
+
+    expect(result.text).toContain("[suy luận: quang hợp]");
+    expect(result.message).toMatch(/phục dựng|suy luận/u);
+    expect(result.message).toMatch(/chưa xác minh|đối chiếu/u);
+    expect(generateContent.mock.calls[0][0].contents[0].parts[0].text)
+      .toContain("Bài đang học về sinh học thực vật.");
+    expect(generateContent.mock.calls[0][0].config.systemInstruction)
+      .toContain("[suy luận:");
+  });
+
+  it("allows visible document context to support a reconstruction without learner context", async () => {
+    config.GEMINI_API_KEY = "test-only-private-key";
+    const data = await pdf(1);
+    generateContent.mockResolvedValue({ text: response([
+      { pageNumber: 1, text: "Cây xanh tạo ra [suy luận: chất hữu cơ] trong quang hợp." },
+    ], true) });
+
+    const result = await readMaterialDocument({ mimeType: "application/pdf", data, recoverContext: true });
+    const request = generateContent.mock.calls[0][0];
+    const prompt = request.contents[0].parts[0].text as string;
+    const instruction = request.config.systemInstruction as string;
+
+    expect(result.text).toContain("[suy luận: chất hữu cơ]");
+    expect(result.message).toMatch(/chưa xác minh|đối chiếu/u);
+    expect(prompt).toContain("nội dung xung quanh trong chính tài liệu");
+    expect(instruction).toContain("nội dung xung quanh trong chính tài liệu");
+    expect(instruction).toContain("bối cảnh người học nếu có");
+    expect(prompt).not.toContain("Bối cảnh do người học cung cấp");
   });
 
   it("marks missing PDF pages so a partial transcription cannot look complete", async () => {

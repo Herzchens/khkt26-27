@@ -46,8 +46,10 @@ import {
 } from "./storage.js";
 import { generateQuestions } from "./ai.js";
 import { generateOwnedQuiz } from "./quizGeneration.js";
-import { materialReadRequestSchema, MATERIAL_READ_BODY_LIMIT_BYTES } from "./materialReadingSchemas.js";
+import { materialReadRequestSchema, MATERIAL_READ_BODY_LIMIT_BYTES, type MaterialReadInput } from "./materialReadingSchemas.js";
 import { readMaterialDocument } from "./materialReading.js";
+import { STUDY_GUIDE_BODY_LIMIT_BYTES, studyGuideRequestSchema } from "./studyGuideSchemas.js";
+import { generateStudyGuide } from "./studyGuide.js";
 import { geminiRequestSchema } from "./geminiSchemas.js";
 import { realtime } from "./realtime.js";
 
@@ -672,8 +674,29 @@ export async function buildApp(deps?: {
         const closed = () => { if (!reply.raw.writableEnded) abort(); };
         req.raw.once("aborted", abort);
         reply.raw.once("close", closed);
-        try { return await readMaterialDocument(materialReadRequestSchema.parse(req.body), controller.signal); }
+        try {
+          const body = req.body as MaterialReadInput;
+          materialReadRequestSchema.parse(body);
+          return await readMaterialDocument(body, controller.signal);
+        }
         finally { req.raw.off("aborted", abort); reply.raw.off("close", closed); }
+      });
+      api.post("/materials/generate", {
+        bodyLimit: STUDY_GUIDE_BODY_LIMIT_BYTES,
+        config: { rateLimit: { max: 3, timeWindow: "1 minute" } },
+      }, async (req, reply) => {
+        const controller = new AbortController();
+        const abort = () => controller.abort();
+        const closed = () => { if (!reply.raw.writableEnded) abort(); };
+        req.raw.once("aborted", abort);
+        reply.raw.once("close", closed);
+        try {
+          const body = studyGuideRequestSchema.parse(req.body);
+          return await generateStudyGuide(body, controller.signal);
+        } finally {
+          req.raw.off("aborted", abort);
+          reply.raw.off("close", closed);
+        }
       });
       api.post("/quiz/generate", {
         bodyLimit: 256 * 1024,

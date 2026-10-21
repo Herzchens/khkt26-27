@@ -4,6 +4,10 @@ import { useAuthStore } from "@/store/authStore";
 import { post, request, REGISTRATION_PASSWORD_HINT } from "@/services/api";
 import { SceneFallback } from "./SceneFallback";
 import { BoardingTicket } from "./BoardingTicket";
+import { StudyNotesInput } from "./StudyNotesInput";
+import { StudyGuideComposer } from "./StudyGuideComposer";
+import { FlipClock } from "./FlipClock";
+import { studyGuideDownload, studyGuideSource, type StudyGuideDraft } from "./studyGuide";
 import { useStudyFullscreen } from "./useStudyFullscreen";
 import { JourneyView } from "./JourneyView";
 import { detectDeviceCategory } from "./device";
@@ -47,6 +51,7 @@ import {
   type Snapshot,
 } from "../../backend/src/adventure/domain";
 import "./adventure.css";
+import "./departure.css";
 const stations = [
   "Ga Khởi đầu",
   "Đồng cỏ Gió",
@@ -132,6 +137,7 @@ function AdventureWorkspace() {
     return () => controller.abort();
   }, [needsTicketCode, ticketId, ticketCode, loaded, exclusive, online, needsLogin, owner]);
   const [sources, setSources] = useState<MaterialSource[]>([]);
+  const [studyInput, setStudyInput] = useState<"notes" | "files" | "ai">("notes");
   const originalFiles = useRef(new Map<string, File>());
   const [preferAiReading, setPreferAiReading] = useState(false);
   const [materials, setMaterials] = useState<MaterialInfo[]>([]);
@@ -505,6 +511,7 @@ function AdventureWorkspace() {
       reconnect: 0,
     };
     if (commit({ ...current.current, active: trip })) {
+      setNow(at);
       setDraftTripId(crypto.randomUUID());
       setSummary(null);
       go("focus");
@@ -661,13 +668,55 @@ function AdventureWorkspace() {
       if (!isCurrent()) return;
       const extension = file.name.split(".").pop()?.toLowerCase();
       const mimeType = extension === "pdf" ? "application/pdf" : extension === "png" ? "image/png" : extension === "webp" ? "image/webp" : "image/jpeg";
-      const result = await request<{text:string;message?:string}>("/materials/read", {method:"POST",body:JSON.stringify({mimeType,data}),signal:controller.signal});
+      const context = `${availableTopics.find(item => item.id === topic)?.name ?? topic}. Mục tiêu học: ${goal}`.slice(0, 1000);
+      const result = await request<{text:string;message?:string}>("/materials/read", {method:"POST",body:JSON.stringify({mimeType,data,recoverContext:true,context}),signal:controller.signal});
       if (!isCurrent()) return;
       setSources((items) => items.map((source) => source.id === sourceId ? {...source,text:result.text,source:"ai-vision",requiresReview:true,reviewed:false} : source));
       setMaterials((items) => items.map((item) => item.sourceId === sourceId ? {...item,status:result.text ? "extracted" : "empty",message:result.message ?? "AI đã đọc. Hãy kiểm tra từ vựng, nghĩa và các chỗ [không rõ]."} : item));
-      setNotice("AI đã đọc tệp gốc. Kiểm tra và sửa nội dung trước khi xác nhận làm nguồn câu hỏi.");
+      setNotice("AI đã đọc tệp và đề xuất khôi phục chỗ mờ khi có đủ ngữ cảnh. Kiểm tra các chỗ [suy luận] hoặc [không rõ] trước khi xác nhận.");
     } catch(e) { if (isCurrent()) setError(e instanceof Error ? e.message : "Không đọc được tài liệu."); }
     finally { if (materialRequest.current === controller) { materialRequest.current = null; if(workspaceLive.current && ownerRef.current === id) {setBusy(false);setMaterialProgress(null);} } }
+  }
+  async function generateStudyGuide(prompt: string): Promise<StudyGuideDraft | undefined> {
+    if (busy || materialRequest.current || !workspaceLive.current || view !== "ticket" || materials.length || sources.length || documentText.trim()) return;
+    if (!user || needsLogin) { setError("Đăng nhập để tạo bản ôn tập bằng AI."); return; }
+    const id = ownerRef.current;
+    const controller = new AbortController();
+    materialRequest.current = controller;
+    const isCurrent = () => workspaceLive.current && ownerRef.current === id && materialRequest.current === controller && !controller.signal.aborted;
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const result = await request<StudyGuideDraft>("/materials/generate", {
+        method: "POST", signal: controller.signal,
+        body: JSON.stringify({ prompt, topic: availableTopics.find(item => item.id === topic)?.name ?? topic,
+          ...(goal.trim() ? { goal: goal.trim() } : {}) }),
+      });
+      if (!isCurrent()) return;
+      studyGuideSource("validation", result);
+      return result;
+    } catch (e) {
+      if (isCurrent()) setError(e instanceof Error ? e.message : "Chưa tạo được bản ôn tập.");
+    } finally {
+      if (materialRequest.current === controller) {
+        materialRequest.current = null;
+        if (workspaceLive.current && ownerRef.current === id) setBusy(false);
+      }
+    }
+  }
+  function acceptStudyGuide(draft: StudyGuideDraft) {
+    if (busy || !workspaceLive.current || view !== "ticket" || materials.length || sources.length || documentText.trim()) return;
+    try {
+      const source = studyGuideSource(crypto.randomUUID(), draft);
+      const reviewed = reviewMaterialSource(source, source.text);
+      setSources([reviewed]);
+      setMaterials([{ sourceId: source.id, name: source.name, size: new TextEncoder().encode(source.text).length,
+        type: "text/plain", status: "extracted", message: "Bản ôn tập do AI tạo, đã được bạn kiểm tra và xác nhận." }]);
+      setError(""); setNotice("Đã dùng bản ôn tập làm tài liệu cho chuyến này. Bạn có thể tải lại trong phần nội dung tài liệu.");
+    } catch (e) { setError(e instanceof Error ? e.message : "Không dùng được bản ôn tập."); }
+  }
+  function downloadStudyGuide(draft: StudyGuideDraft) {
+    try { downloadData(studyGuideDownload(draft), "vien-du-on-tap.txt", "text/plain;charset=utf-8"); }
+    catch (e) { setError(e instanceof Error ? e.message : "Không tải được bản ôn tập."); }
   }
   function exportRawData() {
     try {
@@ -676,15 +725,18 @@ function AdventureWorkspace() {
       setError("Trình duyệt đang chặn truy cập bộ nhớ. Hãy bật lưu trữ cho ứng dụng rồi tải lại.");
     }
   }
-  function downloadData(text: string, filename: string) {
+  function downloadData(text: string, filename: string, type = "application/json") {
     const blob = new Blob([text], {
-      type: "application/json",
+      type,
     });
     const url = URL.createObjectURL(blob),
       a = document.createElement("a");
     a.href = url;
     a.download = filename;
+    a.hidden = true;
+    document.body.appendChild(a);
     a.click();
+    a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   async function generateQuiz(session: Session, count: number): Promise<QuizQuestion[]> {
@@ -1061,8 +1113,75 @@ function AdventureWorkspace() {
                     mode={mode}
                     tripCode={ticketCode?.id === ticketId ? ticketCode.value : undefined}
                   />
-                  <div className="two-columns boarding-preparation">
-                    <section className="panel form">
+                  <div className="boarding-preparation">
+                    <section className="panel form departure-materials">
+                      <div className="eyebrow">HÀNH TRANG HỌC TẬP</div>
+                      <h2>Nội dung ôn tập</h2>
+                      <p className="departure-intro">Dán nội dung đã có, chọn tệp hoặc nhờ AI soạn một bản ôn tập để mang lên tàu.</p>
+                      <div className="departure-source-options" role="group" aria-label="Chọn cách chuẩn bị nội dung">
+                        <button disabled={busy} aria-pressed={studyInput === "notes"} onClick={() => setStudyInput("notes")}>Dán nội dung</button>
+                        <button disabled={busy} aria-pressed={studyInput === "files"} onClick={() => setStudyInput("files")}>Tải tài liệu</button>
+                        <button disabled={busy} aria-pressed={studyInput === "ai"} onClick={() => setStudyInput("ai")}>Nhờ AI soạn</button>
+                      </div>
+                      <div className="departure-source-panel" hidden={studyInput !== "ai"}>
+                        {!materials.length && !sources.length && !documentText.trim() ? <StudyGuideComposer
+                          disabled={busy} canGenerate={Boolean(user && !needsLogin && online)}
+                          unavailableReason={!online ? "Kết nối mạng để tạo bản ôn tập bằng AI." : "Đăng nhập để tạo bản ôn tập bằng API Google AI Studio."}
+                          onGenerate={generateStudyGuide} onCancel={() => materialRequest.current?.abort()} onUse={acceptStudyGuide} onDownload={downloadStudyGuide}
+                        /> : <p className="info-box">Bạn đã có nội dung cho chuyến này. Để tạo bản ôn tập mới từ yêu cầu bằng chữ, hãy xóa nội dung đã dán và gỡ các tài liệu bên dưới trước.</p>}
+                      </div>
+                      <div className="departure-source-panel" hidden={studyInput !== "notes"}>
+                        <StudyNotesInput value={documentText} onChange={setDocumentText} disabled={busy} hasDocuments={Boolean(materials.length || sources.length)} />
+                      </div>
+                      <div className="departure-source-panel" hidden={studyInput !== "files"}>
+                      <h3 className="material-title">Tài liệu học tập</h3>
+                      <label className="material-ai-option">
+                        <input type="checkbox" checked={preferAiReading} disabled={busy} onChange={(e) => setPreferAiReading(e.target.checked)} aria-describedby="material-ai-help" />
+                        <span>Ưu tiên dùng AI để đọc PDF/ảnh</span>
+                      </label>
+                      <p id="material-ai-help" className="material-hint">Thông thường, ứng dụng đọc chữ trên thiết bị. Với ảnh/PDF khó đọc, AI dùng chính API Google AI Studio (Gemini) đã tích hợp. Tệp chỉ được gửi khi bạn bấm “Đọc bằng AI”; cần đăng nhập.</p>
+                      <label className="file-label">
+                        Chọn tệp tài liệu
+                        <input
+                          type="file"
+                          multiple
+                          disabled={busy}
+                          onChange={(e) => {
+                            const files = Array.from(e.target.files ?? []);
+                            e.target.value = "";
+                            void importMaterials(files);
+                          }}
+                        />
+                      </label>
+                      <details className="material-formats"><summary>Định dạng và giới hạn tệp</summary><p className="material-hint">Word (.docx), PowerPoint (.pptx), Excel (.xlsx/.xls), PDF, OpenDocument và văn bản. OCR đọc tiếng Việt và tiếng Anh từ PDF quét, ảnh PNG/JPG/WebP/BMP ngay trên thiết bị. Tối đa 32 MiB/tệp, 10 tệp/chuyến, 50.000 ký tự; ảnh tối đa 20 megapixel, PDF tối đa 20 trang được đọc và 20 trang dùng OCR. Tệp chưa hỗ trợ đọc vẫn hiển thị tên và báo trạng thái.</p></details>
+                      {materialProgress && <div className="material-progress">
+                        <p role="status"><strong>{materialProgress.file}</strong><br/>
+                          {{ loading: "Đang nạp bộ đọc", recognizing: "Đang nhận diện chữ (OCR)", rendering: "Đang dựng trang", extracting: "Đang đọc văn bản" }[materialProgress.phase]}
+                          {materialProgress.page != null && ` · Trang ${materialProgress.page}${materialProgress.totalPages ? `/${materialProgress.totalPages}` : ""}`}
+                        </p>
+                        <progress aria-label="Tiến độ đọc tài liệu" max={1} value={materialProgress.progress} />
+                        <button onClick={() => materialRequest.current?.abort()}>Hủy đọc tài liệu</button>
+                      </div>}
+                      <p className="material-hint">AI đọc cả chữ in và chữ viết tay, đồng thời đề xuất khôi phục phần mờ dựa trên ngữ cảnh. Chỗ suy luận được đánh dấu [suy luận: …]; chỗ thiếu căn cứ giữ [không rõ]. Hãy kiểm tra trước khi dùng làm tài liệu.</p>
+                      </div>
+                      {sources.map((source) => <details className="material-source" key={source.id} open={!source.reviewed}>
+                        <summary>{source.name} · {source.reviewed ? "Đã kiểm tra" : "Cần kiểm tra nội dung"}</summary>
+                        <label>Nội dung nguồn · {source.name}<textarea rows={8} maxLength={source.source === "ai-generated" ? 20000 : 50000} disabled={busy} value={source.text} onChange={(e) => setSources((items) => items.map((item) => item.id === source.id ? {...item,text:e.target.value,reviewed:false} : item))} placeholder="Nhập hoặc sửa bản chép đúng của tài liệu. Không tự dịch nội dung." /></label>
+                        <div className="choice-row">
+                          <button disabled={busy || source.text.trim().length < 10} onClick={() => { try { const reviewed = reviewMaterialSource(source, source.text); setSources((items) => items.map((item) => item.id === source.id ? reviewed : item)); setError(""); } catch(e) { setError(e instanceof Error ? e.message : "Không xác nhận được tài liệu."); } }}>Xác nhận nội dung đã kiểm tra</button>
+                          {source.source !== "ai-generated" && <button disabled={busy || !originalFiles.current.has(source.id) || !/\.(pdf|png|jpe?g|webp)$/i.test(source.name)} onClick={() => void readHandwriting(source.id)}>Đọc bằng AI · gửi tệp này</button>}
+                          {source.source === "ai-generated" && <button disabled={busy} onClick={() => downloadStudyGuide({title:source.name.replace(/\.txt$/i, ""),text:source.text})}>Tải bản ôn tập (.txt)</button>}
+                          <button disabled={busy} onClick={() => { originalFiles.current.delete(source.id); setSources((items) => items.filter((item) => item.id !== source.id)); setMaterials((items) => items.filter((file) => source.covers ? !source.covers.includes(file.name) : file.sourceId !== source.id)); }}>Gỡ tài liệu</button>
+                        </div>
+                        {source.source !== "ai-generated" && !originalFiles.current.has(source.id) && <small>Muốn đọc lại bằng AI, hãy nhập lại tệp gốc.</small>}
+                      </details>)}
+                      {!!materials.length && <ul className="material-list" aria-label="Tài liệu đã chọn">{materials.map((file, i) => <li key={`${i}:${file.name}`}>
+                        <strong>{file.name}</strong><span>{(file.size / 1024).toFixed(1)} KB · {file.message}</span>
+                      </li>)}</ul>}
+                    </section>
+                    <section className="panel form departure-settings">
+                      <div className="eyebrow">LỘ TRÌNH CỦA BẠN</div>
+                      <h2>Sẵn sàng khởi hành</h2>
                       <TicketEditor initiallyOpen={goal.trim().length < 3 || !Number.isInteger(minutes) || minutes < 1 || minutes > 240 || !validBreaks}>
                         <label>
                           Mục tiêu học tập
@@ -1088,66 +1207,7 @@ function AdventureWorkspace() {
                         </label>
                         <DurationPicker value={minutes} onChange={setMinutes} breakCount={breakCount} breakMinutes={breakMinutes} onBreakCountChange={setBreakCount} onBreakMinutesChange={setBreakMinutes} />
                       </TicketEditor>
-                      <h2>Hành trang học tập</h2>
-                      <label>
-                        Ghi chú học tập (không bắt buộc)
-                        <textarea
-                          rows={5}
-                          maxLength={50000}
-                          disabled={busy}
-                          value={documentText}
-                          onChange={(e) => setDocumentText(e.target.value)}
-                          aria-describedby="notes-help"
-                          placeholder="Ghi lại ý chính hoặc dán nội dung bạn muốn ôn."
-                        />
-                      </label>
-                      <p id="notes-help" className="material-hint">Ghi chú được lưu riêng cho chuyến này. Khi không nhập tệp, AI dùng ghi chú cùng chủ đề và mục tiêu để tạo câu hỏi. Khi có tệp, câu hỏi dùng nội dung tài liệu đã xác nhận; sửa ghi chú không thay đổi nguồn đó.</p>
-                      <h3 className="material-title">Tài liệu học tập</h3>
-                      <label className="material-ai-option">
-                        <input type="checkbox" checked={preferAiReading} disabled={busy} onChange={(e) => setPreferAiReading(e.target.checked)} aria-describedby="material-ai-help" />
-                        <span>Ưu tiên dùng AI để đọc PDF/ảnh</span>
-                      </label>
-                      <p id="material-ai-help" className="material-hint">Mặc định, ứng dụng đọc chữ ngay trên thiết bị và không gửi tệp lên Google. Với chữ viết tay hoặc bản quét khó đọc, chọn ô này để bỏ qua bước đọc trên máy; tệp chỉ được gửi tới Gemini khi bạn bấm “Đọc bằng AI”. Cần đăng nhập để dùng AI.</p>
-                      <label className="file-label">
-                        Chọn tệp tài liệu
-                        <input
-                          type="file"
-                          multiple
-                          disabled={busy}
-                          onChange={(e) => {
-                            const files = Array.from(e.target.files ?? []);
-                            e.target.value = "";
-                            void importMaterials(files);
-                          }}
-                        />
-                      </label>
-                      <p className="material-hint">Word (.docx), PowerPoint (.pptx), Excel (.xlsx/.xls), PDF, OpenDocument và văn bản. OCR đọc tiếng Việt và tiếng Anh từ PDF quét, ảnh PNG/JPG/WebP/BMP ngay trên thiết bị. Tối đa 32 MiB/tệp, 10 tệp/chuyến, 50.000 ký tự; ảnh tối đa 20 megapixel, PDF tối đa 20 trang được đọc và 20 trang dùng OCR. Tệp chưa hỗ trợ đọc vẫn hiển thị tên và báo trạng thái.</p>
-                      {materialProgress && <div className="material-progress">
-                        <p role="status"><strong>{materialProgress.file}</strong><br/>
-                          {{ loading: "Đang nạp bộ đọc", recognizing: "Đang nhận diện chữ (OCR)", rendering: "Đang dựng trang", extracting: "Đang đọc văn bản" }[materialProgress.phase]}
-                          {materialProgress.page != null && ` · Trang ${materialProgress.page}${materialProgress.totalPages ? `/${materialProgress.totalPages}` : ""}`}
-                        </p>
-                        <progress aria-label="Tiến độ đọc tài liệu" max={1} value={materialProgress.progress} />
-                        <button onClick={() => materialRequest.current?.abort()}>Hủy đọc tài liệu</button>
-                      </div>}
-                      <p className="material-hint">Nút “Đọc bằng AI” nhận diện nội dung PDF/ảnh, gồm cả chữ in và chữ viết tay. Kiểm tra, sửa rồi xác nhận bản chép trước khi tạo câu hỏi. Tệp gốc được giữ tạm trong bộ nhớ cửa sổ này.</p>
-                      {sources.map((source) => <details className="material-source" key={source.id} open={!source.reviewed}>
-                        <summary>{source.name} · {source.reviewed ? "Đã kiểm tra" : "Cần kiểm tra nội dung"}</summary>
-                        <label>Nội dung nguồn · {source.name}<textarea rows={8} maxLength={50000} disabled={busy} value={source.text} onChange={(e) => setSources((items) => items.map((item) => item.id === source.id ? {...item,text:e.target.value,reviewed:false} : item))} placeholder="Nhập hoặc sửa bản chép đúng của tài liệu. Không tự dịch nội dung." /></label>
-                        <div className="choice-row">
-                          <button disabled={busy || source.text.trim().length < 10} onClick={() => { try { const reviewed = reviewMaterialSource(source, source.text); setSources((items) => items.map((item) => item.id === source.id ? reviewed : item)); setError(""); } catch(e) { setError(e instanceof Error ? e.message : "Không xác nhận được tài liệu."); } }}>Xác nhận nội dung đã kiểm tra</button>
-                          <button disabled={busy || !originalFiles.current.has(source.id) || !/\.(pdf|png|jpe?g|webp)$/i.test(source.name)} onClick={() => void readHandwriting(source.id)}>Đọc bằng AI · gửi tệp này</button>
-                          <button disabled={busy} onClick={() => { originalFiles.current.delete(source.id); setSources((items) => items.filter((item) => item.id !== source.id)); setMaterials((items) => items.filter((file) => source.covers ? !source.covers.includes(file.name) : file.sourceId !== source.id)); }}>Gỡ tài liệu</button>
-                        </div>
-                        {!originalFiles.current.has(source.id) && <small>Muốn đọc lại bằng AI, hãy nhập lại tệp gốc.</small>}
-                      </details>)}
-                      {!!materials.length && <ul className="material-list" aria-label="Tài liệu đã chọn">{materials.map((file, i) => <li key={`${i}:${file.name}`}>
-                        <strong>{file.name}</strong><span>{(file.size / 1024).toFixed(1)} KB · {file.message}</span>
-                      </li>)}</ul>}
-                    </section>
-                    <section className="panel form">
-                      <div className="eyebrow">SẴN SÀNG LÊN TÀU</div>
-                      <h2>Chọn bạn đồng hành</h2>
+                      <h3 className="departure-companion-title">Bạn đồng hành</h3>
                       <div className="choice-row">
                         <button
                           className={mode === "solo" ? "selected" : ""}
@@ -1235,13 +1295,9 @@ function AdventureWorkspace() {
                       <div className="focus-phase-label">
                         {rest ? `Trạm dừng chân ${rest.index}/${rest.count}` : `Chặng học ${(studyStage?.index ?? 0) + 1}/${studyStage?.count ?? 1}`}
                       </div>
-                      <div
-                        className="timer"
-                        role="timer"
-                        aria-label={rest ? "Giải lao còn lại" : "Chặng học còn lại"}
-                      >
-                        {clock(rest ? rest.remainingSeconds : studyStage?.remainingSeconds ?? active.target - elapsedSeconds(active, displayAt))}
-                      </div>
+                      <FlipClock seconds={rest ? rest.remainingSeconds : studyStage?.remainingSeconds ?? active.target - elapsedSeconds(active, displayAt)}
+                        label={rest ? "Giải lao còn lại" : "Chặng học còn lại"}
+                        motionAllowed={active.state === "focus" || active.state === "reconnecting"} />
                       <p className="focus-next" role="status">
                         {rest
                           ? `Tự tiếp tục chặng học ${rest.index + 1}/${rest.count + 1} lúc ${new Date(rest.endsAt).toLocaleTimeString("vi-VN", {hour: "2-digit", minute: "2-digit", second: "2-digit"})}`
@@ -1279,6 +1335,8 @@ function AdventureWorkspace() {
                         draftSeconds={active.groupId ? 0 : focused(active)}
                         targetSeconds={active.target}
                         focusState={rest ? "break" : active.state}
+                        restStop={rest ? {index:rest.index,count:rest.count} : null}
+                        motionAllowed={active.state === "focus" || active.state === "reconnecting"}
                         reconnect={active.reconnect}
                       />
                       {active.groupId && <p className="overhead-hint">Bản đồ đoàn mở thêm vùng sau khi máy chủ xác nhận phần đóng góp của phiên này.</p>}

@@ -1,0 +1,34 @@
+.boarding-preparation {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, .85fr);
+  gap: 24px;
+  margin: 28px 0;
+  align-items: start;
+}
+.boarding-preparation > .panel { min-width: 0; margin-bottom: 0; }
+.departure-settings { position: sticky; top: 24px; }
+.departure-intro { color: #66756b; line-height: 1.65; }
+.departure-source-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 5px; border-radius: 12px; background: #f0f1e9; }
+.departure-source-options button { padding: 11px 7px; font-size: 12px; border: 1px solid transparent; background: transparent; border-radius: 9px; }
+.departure-source-options button[aria-pressed="true"] { background: #fffdf7; border-color: #bccfbe; color: #28513c; box-shadow: 0 2px 6px #304c3410; }
+.departure-source-panel { min-width: 0; display: grid; gap: 14px; }
+.departure-source-panel[hidden] { display: none; }
+.departure-materials .study-notes-input { margin: 0; }
+.departure-materials .study-notes-input h3 { margin: 0; font-size: 17px; }
+.departure-materials .material-title { margin: 0; }
+.departure-settings .departure-companion-title { margin: 2px 0 0; font-size: 16px; }
+.departure-settings .choice-row { margin: 0; }
+.departure-settings .primary { width: 100%; }
+.departure-settings .ticket-editor-fields { gap: 14px; }
+.departure-settings .duration-presets { flex-wrap: wrap; }
+.material-formats summary { color: #52695a; cursor: pointer; font-size: 12px; }
+.material-formats p { margin: 10px 0 0; }
+@media (max-width: 1100px) {
+  .boarding-preparation { grid-template-columns: minmax(0, 1fr); }
+  .departure-settings { position: static; }
+}
+@media (max-width: 520px) {
+  .boarding-preparation { gap: 18px; margin-top: 20px; }
+  .boarding-preparation > .panel { padding: 20px; }
+  .departure-source-options button { font-size: 11px; padding: 10px 4px; }
+}

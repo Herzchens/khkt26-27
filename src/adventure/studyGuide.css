@@ -1,0 +1,24 @@
+.study-guide {
+  padding: 22px;
+  border: 1px solid #c9d8c9;
+  border-radius: 18px;
+  background: #f1f5ed;
+  display: grid;
+  gap: 12px;
+}
+.study-guide__heading { display: flex; align-items: flex-start; gap: 12px; }
+.study-guide__heading > span { color: #a36e47; font-size: 28px; line-height: 1.2; }
+.study-guide__heading h3 { margin: 0 0 8px; font-size: 18px; }
+.study-guide__heading p { margin: 0; font-size: 14px; line-height: 1.65; color: #66736a; }
+.study-guide label { display: grid; gap: 8px; font-weight: 600; }
+.study-guide textarea { margin: 0; line-height: 1.65; }
+.study-guide .material-hint { margin: 0; }
+.study-guide__generate { justify-self: start; }
+.study-guide__waiting { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.study-guide__waiting p { margin: 0; color: #66736a; font-size: 12px; }
+.study-guide__draft { display: grid; gap: 14px; padding-top: 18px; border-top: 1px solid #c9d8c9; }
+.study-guide__draft h4 { margin: 0; font-size: 18px; }
+@media (max-width: 600px) {
+  .study-guide { padding: 16px; }
+  .study-guide__generate { justify-self: stretch; }
+}

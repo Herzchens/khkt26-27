@@ -13,6 +13,8 @@ export function JourneyView({
   focusState,
   reconnect = 0,
   targetSeconds,
+  restStop,
+  motionAllowed,
 }: {
   journey?: Journey;
   carriages: { id: string; name: string; color: string }[];
@@ -22,6 +24,8 @@ export function JourneyView({
   focusState?: ActiveTrip["state"] | "break";
   reconnect?: number;
   targetSeconds?: number;
+  restStop?: { index: number; count: number } | null;
+  motionAllowed?: boolean;
 }) {
   const exploration = journeyExplorationFraction(
     journey,
@@ -40,6 +44,8 @@ export function JourneyView({
           fogStrength={fog ? 1 : Math.min(1, Math.max(0, reconnect / 120))}
           exploration={exploration}
           coast={coast}
+          restStop={restStop}
+          motionAllowed={motionAllowed}
         />
       ) : (
         <TopDownMap

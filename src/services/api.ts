@@ -75,7 +75,7 @@ async function fetchWithTimeout(path: string, init: RequestInit) {
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort(),
-    path === "/materials/read" ? 115000 : ["/quizzes/generate", "/quiz/generate"].includes(path) ? 100000 : 30000,
+    path === "/materials/read" ? 115000 : ["/quizzes/generate", "/quiz/generate", "/materials/generate"].includes(path) ? 100000 : 30000,
   );
   const abort = () => controller.abort(init.signal?.reason);
   if (init.signal?.aborted) abort();

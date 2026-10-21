@@ -48,6 +48,8 @@ function hasExpectedSignature(mimeType: z.infer<typeof materialMimeType>, data: 
 export const materialReadRequestSchema = z.object({
   mimeType: materialMimeType,
   data: z.string().min(1).max(MAX_MATERIAL_BASE64_CHARS),
+  recoverContext: z.boolean().default(false),
+  context: z.string().trim().min(1).max(1000).optional(),
 }).strict().superRefine((value, context) => {
   if (value.data.length > MAX_MATERIAL_BASE64_CHARS) return;
   if (!isBase64(value.data)) {
@@ -74,7 +76,7 @@ export const materialReadRequestSchema = z.object({
     });
 });
 
-export type MaterialReadInput = z.infer<typeof materialReadRequestSchema>;
+export type MaterialReadInput = z.input<typeof materialReadRequestSchema>;
 
 export const materialReadResponseSchema = z.object({
   pages: z.array(z.object({

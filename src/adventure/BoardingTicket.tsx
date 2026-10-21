@@ -127,7 +127,7 @@ export function BoardingTicket({
 
       <footer className="boarding-ticket__band boarding-ticket__band--bottom">
         <span>CHUYẾN ĐI SẮP KHỞI HÀNH</span>
-        <span>Mỗi phút tập trung là một bước tiến.</span>
+        <span>Mỗi phút, một bước tiến.</span>
       </footer>
     </section>
   );

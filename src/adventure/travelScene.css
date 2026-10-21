@@ -1,0 +1,65 @@
+.travel-scene .scene-sky-cloud {
+  opacity: 0.9;
+}
+
+.travel-scene .travel-rest-stop {
+  filter: drop-shadow(0 3px 0 #61765020);
+}
+
+.travel-scene .travel-train-position {
+  transform-box: view-box;
+  transform-origin: 0 0;
+  transform: translateX(0);
+}
+
+.travel-scene[data-stop-phase="parked"] .travel-train-position {
+  transform: translateX(var(--rest-shift));
+}
+
+.travel-scene[data-stop-motion="true"][data-stop-phase="arriving"] .travel-train-position {
+  animation: travel-stop-arrive 1.1s cubic-bezier(0.2, 0.76, 0.25, 1) both;
+}
+
+.travel-scene[data-stop-motion="true"][data-stop-phase="departing"] .travel-train-position {
+  animation: travel-stop-depart 0.85s cubic-bezier(0.4, 0, 0.7, 0.28) both;
+}
+
+.travel-scene[data-stop-motion="true"][data-stop-phase="arriving"] .travel-wheel,
+.travel-scene[data-stop-motion="true"][data-stop-phase="departing"] .travel-wheel {
+  animation-play-state: running;
+}
+
+.travel-scene[data-stop-motion="false"][data-rest-index] .travel-train-position[data-stop-phase="arriving"],
+.travel-scene[data-stop-motion="false"][data-rest-index] .travel-train-position[data-stop-phase="parked"] {
+  transform: translateX(var(--rest-shift));
+  animation: none;
+}
+
+.travel-scene[data-stop-motion="false"] .travel-train-position,
+.travel-scene[data-stop-motion="false"] .travel-wheel,
+.travel-scene[data-stop-motion="false"] .train-steam-puff {
+  animation-play-state: paused;
+}
+
+@keyframes travel-stop-arrive {
+  from { transform: translateX(0); }
+  to { transform: translateX(var(--rest-shift)); }
+}
+
+@keyframes travel-stop-depart {
+  from { transform: translateX(var(--rest-shift)); }
+  to { transform: translateX(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .travel-scene .travel-train-position,
+  .travel-scene .travel-wheel,
+  .travel-scene .train-steam-puff {
+    animation: none !important;
+  }
+
+  .travel-scene[data-rest-index] .travel-train-position[data-stop-phase="arriving"],
+  .travel-scene[data-rest-index] .travel-train-position[data-stop-phase="parked"] {
+    transform: translateX(var(--rest-shift));
+  }
+}

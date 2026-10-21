@@ -1,30 +1,25 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { cloudScaleAtProgress } from "./exploration";
-import { CartoonCloud } from "./CartoonCloud";
+import type { AnimationEvent, CSSProperties } from "react";
+import {
+  completeSceneStopMotion,
+  sceneRestStopForPhase,
+  transitionSceneStop,
+  type SceneRestStop,
+  type SceneStopPhase,
+} from "./sceneMotion";
 import "./fog.css";
+import "./travelScene.css";
 
 type Carriage = { id: string; name: string; color: string };
 
-const sceneClouds = [
-  { x: 72, y: 78, clearsAt: 0.2, size: 0.76, angle: -2, variant: 0 },
-  { x: 270, y: 111, clearsAt: 0.3, size: 0.72, angle: 1, variant: 1 },
-  { x: 478, y: 75, clearsAt: 0.4, size: 0.79, angle: 2, variant: 2 },
-  { x: 705, y: 108, clearsAt: 0.5, size: 0.73, angle: -1, variant: 0 },
-  { x: 875, y: 74, clearsAt: 0.6, size: 0.77, angle: 2, variant: 1 },
-  { x: 150, y: 330, clearsAt: 0.7, size: 0.72, angle: 1, variant: 2 },
-  { x: 384, y: 345, clearsAt: 0.8, size: 0.78, angle: -2, variant: 0 },
-  { x: 632, y: 324, clearsAt: 0.9, size: 0.74, angle: 2, variant: 1 },
-  { x: 850, y: 342, clearsAt: 1, size: 0.77, angle: -1, variant: 2 },
-];
-
 const sceneTrees = [
-  [69, 76, 0.75], [149, 127, 0.68], [235, 60, 0.82], [340, 131, 0.7],
-  [548, 83, 0.78], [657, 127, 0.68], [764, 69, 0.82], [850, 132, 0.72],
-  [73, 285, 0.68], [252, 294, 0.8], [505, 285, 0.72], [737, 296, 0.78],
+  [82, 148, 0.7], [228, 179, 0.62], [350, 143, 0.75], [527, 177, 0.65],
+  [665, 147, 0.78], [821, 177, 0.62], [75, 296, 0.66], [250, 297, 0.8],
+  [505, 285, 0.72], [737, 296, 0.78],
 ] as const;
 
 const sceneHouses = [
-  [405, 77, "#ce8a65"],
+  [405, 158, "#ce8a65"],
   [812, 277, "#d2a25f"],
 ] as const;
 
@@ -35,6 +30,8 @@ export function TopDownScene({
   fogStrength,
   exploration = 0,
   coast = false,
+  restStop = null,
+  motionAllowed = true,
 }: {
   carriages: Carriage[];
   ownId: string;
@@ -42,39 +39,91 @@ export function TopDownScene({
   fogStrength: number;
   exploration?: number;
   coast?: boolean;
+  restStop?: SceneRestStop | null;
+  motionAllowed?: boolean;
 }) {
   const id = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const element = useRef<HTMLElement>(null);
   const [visible, setVisible] = useState(true);
+  const [reducedMotion, setReducedMotion] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [selected, setSelected] = useState(ownId);
+  const restIndex = restStop?.index ?? null;
+  const restCount = restStop?.count ?? null;
+  const [stopPhase, setStopPhase] = useState<SceneStopPhase>(() => restIndex === null ? "travelling" : "parked");
+  const previousRestIndex = useRef(restIndex);
+  const previousRestStop = useRef<SceneRestStop | null>(restStop);
   useEffect(() => {
     let inView = true;
     const update = () => setVisible(inView && !document.hidden);
-    const observer = new IntersectionObserver(([entry]) => {
-      inView = entry.isIntersecting;
-      update();
-    });
-    if (element.current) observer.observe(element.current);
+    const observer = typeof IntersectionObserver === "undefined"
+      ? null
+      : new IntersectionObserver(([entry]) => {
+          inView = entry.isIntersecting;
+          update();
+        });
+    if (element.current) observer?.observe(element.current);
     document.addEventListener("visibilitychange", update);
     update();
+    const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    const updateMotionPreference = () => setReducedMotion(Boolean(media?.matches));
+    updateMotionPreference();
+    if (media?.addEventListener) media.addEventListener("change", updateMotionPreference);
+    else media?.addListener?.(updateMotionPreference);
     return () => {
-      observer.disconnect();
+      observer?.disconnect();
       document.removeEventListener("visibilitychange", update);
+      if (media?.removeEventListener) media.removeEventListener("change", updateMotionPreference);
+      else media?.removeListener?.(updateMotionPreference);
     };
   }, []);
+  const sceneMotionAllowed = motionAllowed && visible && !reducedMotion;
+  useEffect(() => {
+    const previousIndex = previousRestIndex.current;
+    setStopPhase((current) => transitionSceneStop(
+      current,
+      previousIndex,
+      restIndex,
+      sceneMotionAllowed,
+    ));
+    previousRestIndex.current = restIndex;
+    if (restIndex !== null && restCount !== null)
+      previousRestStop.current = { index: restIndex, count: restCount };
+    else if (previousIndex !== null && !sceneMotionAllowed) previousRestStop.current = null;
+  }, [restIndex, restCount, sceneMotionAllowed]);
   const engineX = 450 + carriages.length * 32;
+  const restShift = 750 - engineX;
   const chosen = carriages.find((car) => car.id === selected) ?? carriages[0];
-  const moving = running && visible;
+  const moving = running && sceneMotionAllowed;
+  const sceneStatus = stopPhase === "arriving"
+    ? "tàu đang vào trạm nghỉ"
+    : stopPhase === "parked" && restStop
+      ? `tàu đang dừng tại trạm nghỉ ${restStop.index} / ${restStop.count}`
+      : stopPhase === "departing"
+        ? "tàu đang rời trạm nghỉ"
+        : moving
+          ? "cảnh vật đang trôi quanh tàu"
+          : "cảnh vật đang dừng";
+  const visibleRestStop = sceneRestStopForPhase(restStop, previousRestStop.current, stopPhase);
+  const finishStopMotion = (event: AnimationEvent<SVGGElement>) => {
+    if (event.animationName === "travel-stop-arrive" || event.animationName === "travel-stop-depart") {
+      setStopPhase((phase) => completeSceneStopMotion(phase));
+      if (event.animationName === "travel-stop-depart" && restIndex === null)
+        previousRestStop.current = null;
+    }
+  };
   return (
     <section
       ref={element}
       className="travel-scene"
       aria-label="Cảnh tàu 2D nhìn thẳng từ trên xuống"
       data-moving={moving}
+      data-stop-phase={stopPhase}
+      data-rest-index={visibleRestStop?.index}
+      data-stop-motion={sceneMotionAllowed}
     >
       <div className="travel-toolbar">
-        <span>1 đầu tàu · {carriages.length} toa · Tàu giữ vị trí giữa khung hình</span>
+        <span>{sceneStatus.charAt(0).toUpperCase() + sceneStatus.slice(1)}</span>
         <div className="overhead-controls">
           <button aria-label="Thu nhỏ cảnh 2D" disabled={zoom <= 1} onClick={() => setZoom((v) => Math.max(1, v - 0.25))}>
             −
@@ -89,16 +138,12 @@ export function TopDownScene({
         className="travel-world"
         viewBox={`${450 - 450 / zoom} ${210 - 210 / zoom} ${900 / zoom} ${420 / zoom}`}
         role="group"
-        aria-label={`Góc nhìn 2D: ${carriages.length} toa, ${moving ? "cảnh vật đang trôi quanh tàu" : "cảnh vật đang dừng"}`}
+        aria-label={`Góc nhìn 2D: ${carriages.length} toa, ${sceneStatus}`}
       >
         <defs>
           <linearGradient id={`${id}-sky`} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0" stopColor="#bde2df" />
             <stop offset="1" stopColor="#e4edc9" />
-          </linearGradient>
-          <linearGradient id={`${id}-sea`} x1="0" y1="0" x2="0.9" y2="1">
-            <stop offset="0" stopColor="#9bd4d3" />
-            <stop offset="1" stopColor="#65b2bd" />
           </linearGradient>
           <pattern id={`${id}-sleepers`} width="30" height="50" patternUnits="userSpaceOnUse">
             <rect x="3" y="2" width="8" height="46" rx="3" fill="#9a7654" />
@@ -110,24 +155,19 @@ export function TopDownScene({
         <g className="travel-far-layer travel-parallax-layer" aria-hidden="true">
           {[0, 900].map((offset) => (
             <g key={offset} transform={`translate(${offset} 0)`}>
-              <path d="M0 128 C110 104 202 130 293 113 S462 137 566 111 S755 125 900 128 V420 H0Z" fill="#d5e8b7" />
-              <path d="M56 125 151 32 238 125Z M186 127 271 56 351 127Z M550 124 647 29 733 124Z M672 125 758 51 843 125Z" fill="#91aa91" stroke="#7d9a87" strokeWidth="4" strokeLinejoin="round" />
-              <path d="M120 63 151 32 181 64 153 56 142 70Z M618 61 647 29 681 66 650 56 638 72Z" fill="#fff2d0" stroke="#d9e8d3" strokeWidth="2" strokeLinejoin="round" />
-              {coast ? (
-                <g className="scene-water">
-                  <path d="M0 320 C140 281 222 326 349 309 S596 330 727 302 S846 313 900 320 V420 H0Z" fill={`url(#${id}-sea)`} />
-                  <path d="M0 320 C140 281 222 326 349 309 S596 330 727 302 S846 313 900 320" fill="none" stroke="#fff0cb" strokeWidth="13" />
-                  <path d="M28 353q30-10 58 0t58 0M605 369q30-10 58 0t58 0M755 344q23-8 46 0t46 0" fill="none" stroke="#d6f1df" strokeWidth="4" strokeLinecap="round" opacity=".8" />
-                </g>
-              ) : (
-                <g className="scene-lake">
-                  <ellipse cx="691" cy="329" rx="139" ry="49" fill="#85c8cd" />
-                  <ellipse cx="681" cy="319" rx="108" ry="33" fill="#b6e1d7" />
-                  <path d="M637 318q35-11 68-2M700 334q26 7 49-1" fill="none" stroke="#f1f2d9" strokeWidth="4" strokeLinecap="round" />
-                </g>
-              )}
+              <path d="M0 142 C125 111 202 129 306 145 S481 168 579 139 S759 116 900 143 V420 H0Z" fill="#bdd99d" />
+              <path d="M0 179 C113 153 198 175 294 183 S475 198 574 174 S780 154 900 185 V420 H0Z" fill="#a7cc87" />
+              <path d="M0 252 C125 228 232 249 351 264 S570 273 694 248 S829 238 900 252 V420 H0Z" fill="#90bd78" />
+              <path d="M92 143q31-12 64-2M375 176q38-14 77-3M691 143q32-11 62-1" fill="none" stroke="#e4efc3" strokeWidth="4" strokeLinecap="round" opacity=".8" />
+              {coast && <path d="M0 367q90-20 180 0t180 0 180 0 180 0 180 0v53H0Z" fill="#76bbc0" opacity=".45" />}
             </g>
           ))}
+        </g>
+        <g className="scene-sky-cloud" aria-hidden="true" transform="translate(115 78)">
+          <path d="M0 11q1-10 11-10 5 0 8 4 3-8 12-8 13 0 14 13 9 1 8 9H5q-8 0-5-8Z" fill="#fffdf2" stroke="#d0e1c7" strokeWidth="2" />
+        </g>
+        <g className="scene-sky-cloud" aria-hidden="true" transform="translate(718 102) scale(.78)">
+          <path d="M0 11q1-10 11-10 5 0 8 4 3-8 12-8 13 0 14 13 9 1 8 9H5q-8 0-5-8Z" fill="#fffdf2" stroke="#d0e1c7" strokeWidth="2" />
         </g>
         <g className="travel-mid-layer travel-parallax-layer" aria-hidden="true">
           {[0, 900].map((offset) => (
@@ -170,20 +210,6 @@ export function TopDownScene({
             </g>
           ))}
         </g>
-        <g className="travel-cloud-cover travel-parallax-layer" aria-hidden="true" pointerEvents="none">
-          {[0, 900].map((offset) => (
-            <g key={offset} transform={`translate(${offset} 0)`}>
-              {sceneClouds.map((cloud, index) => (
-                <g key={index} transform={`translate(${cloud.x} ${cloud.y}) rotate(${cloud.angle})`}>
-                  <CartoonCloud
-                    scale={cloud.size * cloudScaleAtProgress(exploration, cloud.clearsAt, 0.16)}
-                    variant={cloud.variant}
-                  />
-                </g>
-              ))}
-            </g>
-          ))}
-        </g>
         <rect y="183" width="900" height="54" fill="#8b7355" opacity=".45" />
         <rect y="188" width="900" height="44" fill="#c19b6b" />
         <g className="travel-track" aria-hidden="true">
@@ -191,8 +217,26 @@ export function TopDownScene({
         </g>
         <path d="M0 194 H900 M0 226 H900" stroke="#5b6260" strokeWidth="7" />
         <path d="M0 193 H900 M0 227 H900" stroke="#eee1bd" strokeWidth="2.5" />
+        {visibleRestStop && (
+          <g className="travel-rest-stop" role="img" aria-label={`Trạm nghỉ ${visibleRestStop.index} / ${visibleRestStop.count}`}>
+            <ellipse cx="750" cy="286" rx="105" ry="12" fill="#507651" opacity=".15" />
+            <path d="M660 269q4-12 17-12h144q13 0 17 12v13H660Z" fill="#e7d5a8" stroke="#846e4c" strokeWidth="3" />
+            <path d="M674 265h149" stroke="#fff5d9" strokeWidth="3" strokeLinecap="round" />
+            <rect x="815" y="253" width="8" height="32" rx="3" fill="#956d4d" />
+            <path d="M784 241q0-5 6-5h59q6 0 6 5v19h-71Z" fill="#fff3cc" stroke="#8a6848" strokeWidth="3" />
+            <path d="M780 241q39-22 79 0" fill="#d8875e" stroke="#8a6848" strokeWidth="3" strokeLinejoin="round" />
+            <text x="819" y="253" textAnchor="middle" fill="#4c664a" fontSize="8" fontWeight="900">TRẠM NGHỈ</text>
+            <text x="819" y="263" textAnchor="middle" fill="#8c7251" fontSize="7" fontWeight="700">{visibleRestStop.index}/{visibleRestStop.count}</text>
+          </g>
+        )}
         <g className="travel-train-motion">
-          <g className="travel-train" aria-label="Đoàn tàu cố định">
+          <g
+            className="travel-train-position"
+            data-stop-phase={stopPhase}
+            style={{ "--rest-shift": `${restShift}px` } as CSSProperties}
+            onAnimationEnd={finishStopMotion}
+          >
+          <g className="travel-train" aria-label="Đoàn tàu nhìn từ trên xuống">
             <g transform={`translate(${engineX} 210)`} aria-label="Đầu tàu">
               <ellipse cx="3" cy="17" rx="44" ry="21" fill="#385f4b" opacity=".27" />
               <g transform="translate(-16 19)">
@@ -259,6 +303,7 @@ export function TopDownScene({
               </g>
             ))}
           </g>
+          </g>
         </g>
       </svg>
       <div className="travel-caption">
@@ -268,8 +313,14 @@ export function TopDownScene({
             ? "☁ Toa đang chờ bạn quay lại"
             : exploration >= 1
               ? "Đã khám phá toàn tuyến"
+              : stopPhase === "arriving"
+                ? "Tàu đang vào trạm nghỉ."
+                : stopPhase === "departing"
+                  ? "Tàu đang rời trạm nghỉ."
+                  : restStop
+                    ? `Tàu nghỉ tại trạm ${restStop.index} / ${restStop.count}.`
               : running
-                ? "☁ Mỗi phút học mở thêm một vùng đất"
+                ? "Mỗi phút học mở thêm một vùng đất."
                 : "Cảnh dừng · tiến độ đã học được giữ."}
         </span>
       </div>
