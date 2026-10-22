@@ -45,6 +45,56 @@ const studyGuideQuestions = [
     sourceExcerpt: "ATP và NADPH cung cấp năng lượng cùng electron cho các phản ứng tiếp theo.",
   },
 ];
+const providerGuideText = [
+  "Đột biến gen là những biến đổi nhỏ xảy ra trong cấu trúc của gen, liên quan đến một hoặc một số cặp nucleotide.",
+  "Thay thế cặp nucleotide | Đổi cặp này bằng cặp khác | Không đổi chiều dài",
+  "Phần lớn đột biến điểm là có hại vì làm phá vỡ sự hài hòa của chuỗi axit amin.",
+].join("\n");
+const providerFirstBatch = [
+  {
+    id: "q1", question: "Theo tài liệu, đột biến gen liên quan đến cấu trúc của gen là gì?",
+    options: ["Biến đổi nhỏ liên quan đến một hoặc một số cặp nucleotide", "Biến đổi cấu trúc của toàn bộ nhiễm sắc thể", "Biến đổi số lượng nhiễm sắc thể trong tế bào", "Biến đổi diễn ra ở cấp độ tế bào chất"],
+    correctAnswerIndex: 0,
+    explanation: "Tài liệu nêu rõ đột biến gen là những biến đổi nhỏ xảy ra trong cấu trúc của gen, liên quan đến một hoặc một số cặp nucleotide.",
+    knowledgePoint: "Khái niệm đột biến gen",
+    sourceExcerpt: "Đột biến gen là những biến đổi nhỏ xảy ra trong cấu trúc của gen, liên quan đến một hoặc một số cặp nucleotide.",
+  },
+  {
+    id: "q2", question: "Dạng đột biến điểm nào làm chiều dài gen không thay đổi?",
+    options: ["Mất cặp nucleotide", "Thêm cặp nucleotide", "Thay thế cặp nucleotide", "Đột biến cấu trúc nhiễm sắc thể"],
+    correctAnswerIndex: 2,
+    explanation: "Dạng thay thế cặp nucleotide không đổi chiều dài gen.",
+    knowledgePoint: "Ảnh hưởng chiều dài gen",
+    sourceExcerpt: "Thay thế cặp nucleotide | Đổi cặp này bằng cặp khác | Không đổi chiều dài",
+  },
+  {
+    id: "q3", question: "Phần lớn đột biến điểm gây hậu quả như thế nào?",
+    options: ["Có lợi cho sinh vật", "Là trung tính", "Có hại vì làm phá vỡ sự hài hòa của chuỗi axit amin", "Không ảnh hưởng gì đến chuỗi axit amin"],
+    correctAnswerIndex: 2,
+    explanation: "Phần lớn đột biến điểm là có hại vì làm phá vỡ sự hài hòa của chuỗi axit amin.",
+    knowledgePoint: "Hậu quả của đột biến điểm",
+    sourceExcerpt: "Phần lớn đột biến điểm là có hại vì làm phá vỡ sự hài hòa của chuỗi axit amin.",
+  },
+];
+const providerRepairBatch = [
+  {
+    id: "q1", question: "Theo tài liệu, đột biến gen liên quan đến những thành phần nào?",
+    options: ["Một hoặc một số cặp nucleotide", "Toàn bộ nhiễm sắc thể", "Cấu trúc của tế bào", "Số lượng nhiễm sắc thể"],
+    correctAnswerIndex: 0,
+    explanation: "Đột biến gen liên quan đến một hoặc một số cặp nucleotide.",
+    knowledgePoint: "Khái niệm đột biến gen",
+    sourceExcerpt: "Đột biến gen là những biến đổi nhỏ xảy ra trong cấu trúc của gen, liên quan đến một hoặc một số cặp nucleotide.",
+  },
+  { ...providerFirstBatch[1] },
+  {
+    id: "q3", question: "Phần lớn đột biến điểm gây hậu quả như thế nào?",
+    options: ["Phần lớn là có lợi", "Phần lớn là trung tính", "Phần lớn là có hại", "Không gây ảnh hưởng gì"],
+    correctAnswerIndex: 2,
+    explanation: "Phần lớn đột biến điểm là có hại vì làm phá vỡ sự hài hòa của chuỗi axit amin.",
+    knowledgePoint: "Hậu quả của đột biến điểm",
+    sourceExcerpt: "Phần lớn đột biến điểm là có hại vì làm phá vỡ sự hài hòa của chuỗi axit amin.",
+  },
+];
 const originalKey = config.GEMINI_API_KEY;
 const originalModel = config.GEMINI_MODEL;
 const originalFallbackModel = config.GEMINI_FALLBACK_MODEL;
@@ -177,6 +227,137 @@ describe("Gemini adapter", () => {
     expect(retryInstruction).toContain("nguyên văn");
     expect(retryInstruction).not.toContain(unsupportedExcerpt.sourceExcerpt);
   });
+  it("combines individually grounded questions from two complete provider batches", async () => {
+    config.GEMINI_API_KEY = "test-only-key";
+    const repairWithNewQuestionId = providerRepairBatch.map((item, index) =>
+      index === 1 ? { ...item, id: "repair-q2" } : item,
+    );
+    generateContent
+      .mockResolvedValueOnce({ text: JSON.stringify(providerFirstBatch) })
+      .mockResolvedValueOnce({ text: JSON.stringify(repairWithNewQuestionId) });
+
+    const questions = await generateGeminiQuiz({
+      topic: "biology", documentAttached: true, documentText: providerGuideText, count: 3,
+    });
+
+    expect(questions).toHaveLength(3);
+    expect(questions.map(item => item.id)).toEqual(["q1", "repair-q2", "q3"]);
+    expect(questions.map(item => item.options[item.correctAnswerIndex])).toEqual([
+      "Một hoặc một số cặp nucleotide",
+      "Thay thế cặp nucleotide",
+      "Có hại vì làm phá vỡ sự hài hòa của chuỗi axit amin",
+    ]);
+    expect(generateContent).toHaveBeenCalledTimes(2);
+  });
+  it("drops a cross-batch id collision while filling the quiz from other grounded candidates", async () => {
+    config.GEMINI_API_KEY = "test-only-key";
+    const repairWithIdCollision = [
+      { ...providerRepairBatch[0], id: "q2" },
+      {
+        id: "repair-q2", question: "Theo bảng, ảnh hưởng nào được ghi cho dạng thay thế?",
+        options: ["Không đổi chiều dài", "Giảm chiều dài", "Tăng chiều dài", "Đổi toàn bộ nhiễm sắc thể"],
+        correctAnswerIndex: 0,
+        explanation: "Dạng thay thế cặp nucleotide không đổi chiều dài.",
+        knowledgePoint: "Ảnh hưởng chiều dài gen",
+        sourceExcerpt: providerFirstBatch[1].sourceExcerpt,
+      },
+      providerRepairBatch[2],
+    ];
+    generateContent
+      .mockResolvedValueOnce({ text: JSON.stringify(providerFirstBatch) })
+      .mockResolvedValueOnce({ text: JSON.stringify(repairWithIdCollision) });
+
+    const questions = await generateGeminiQuiz({
+      topic: "biology", documentAttached: true, documentText: providerGuideText, count: 3,
+    });
+
+    expect(questions.map(item => item.id)).toEqual(["q2", "repair-q2", "q3"]);
+    expect(new Set(questions.map(item => item.id)).size).toBe(3);
+  });
+  it("does not salvage candidates from a repair batch with the wrong count", async () => {
+    config.GEMINI_API_KEY = "test-only-key";
+    const invalidFirstBatch = providerFirstBatch.map((item, index) =>
+      index === 0 ? { ...item, sourceExcerpt: "not present in the guide" } : item,
+    );
+    generateContent
+      .mockResolvedValueOnce({ text: JSON.stringify(invalidFirstBatch) })
+      .mockResolvedValueOnce({ text: JSON.stringify(providerRepairBatch.slice(0, 2)) });
+
+    await expect(generateGeminiQuiz({
+      topic: "biology", documentAttached: true, documentText: providerGuideText, count: 3,
+    })).rejects.toMatchObject({ status: 502, kind: "invalid-ai-output" });
+    expect(generateContent).toHaveBeenCalledTimes(2);
+  });
+  it("does not start a fallback request when less than eleven seconds remain", async () => {
+    vi.useFakeTimers();
+    config.GEMINI_API_KEY = "test-only-key";
+    config.GEMINI_FALLBACK_MODEL = "gemini-fallback";
+    let rejectPrimary!: (error: unknown) => void;
+    generateContent.mockImplementationOnce(() => new Promise((_, reject) => { rejectPrimary = reject; }));
+
+    const operation = generateGeminiQuiz({ topic: "biology", count: 1 });
+    const assertion = expect(operation).rejects.toMatchObject({ status: 504, kind: "upstream-timeout" });
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(89_000);
+    rejectPrimary({ status: 503, message: JSON.stringify({ error: { status: "UNAVAILABLE" } }) });
+
+    await assertion;
+    expect(generateContent).toHaveBeenCalledTimes(1);
+  });
+  it("does not start source repair when less than eleven seconds remain", async () => {
+    vi.useFakeTimers();
+    config.GEMINI_API_KEY = "test-only-key";
+    let resolvePrimary!: (response: { text: string }) => void;
+    generateContent.mockImplementationOnce(() => new Promise(resolve => { resolvePrimary = resolve; }));
+
+    const operation = generateGeminiQuiz({
+      topic: "biology", documentAttached: true, documentText: substantialStudyGuide, count: 3,
+    });
+    const assertion = expect(operation).rejects.toMatchObject({ status: 504, kind: "upstream-timeout" });
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(81_000);
+    resolvePrimary({ text: "[]" });
+
+    await assertion;
+    expect(generateContent).toHaveBeenCalledTimes(1);
+  });
+  it("bounds primary and fallback calls while leaving enough time for source repair", async () => {
+    vi.useFakeTimers();
+    config.GEMINI_API_KEY = "test-only-key";
+    config.GEMINI_MODEL = "gemini-primary";
+    config.GEMINI_FALLBACK_MODEL = "gemini-fallback";
+    const unsupported = { ...groundedQuestion, correctAnswerIndex: 1 };
+    let rejectPrimary!: (error: unknown) => void;
+    let resolveFallback!: (response: { text: string }) => void;
+    generateContent
+      .mockImplementationOnce(() => new Promise((_, reject) => { rejectPrimary = reject; }))
+      .mockImplementationOnce(() => new Promise(resolve => { resolveFallback = resolve; }))
+      .mockResolvedValueOnce({ text: JSON.stringify([groundedQuestion]) });
+
+    const operation = generateGeminiQuiz({
+      topic: "biology", documentAttached: true, documentText: sourceText, count: 1,
+    });
+    await Promise.resolve();
+    expect(generateContent.mock.calls[0][0].config.httpOptions.timeout).toBeLessThanOrEqual(55_000);
+    await vi.advanceTimersByTimeAsync(55_000);
+    rejectPrimary({ status: 503, message: JSON.stringify({ error: { status: "UNAVAILABLE" } }) });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(generateContent.mock.calls[1][0].model).toBe("gemini-fallback");
+    expect(generateContent.mock.calls[1][0].config.httpOptions.timeout).toBeLessThanOrEqual(20_000);
+    expect(generateContent.mock.calls[1][0].config.httpOptions.timeout).toBeGreaterThanOrEqual(11_000);
+    await vi.advanceTimersByTimeAsync(20_000);
+    resolveFallback({ text: JSON.stringify([unsupported]) });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(generateContent).toHaveBeenCalledTimes(3);
+    expect(generateContent.mock.calls[2][0].config.httpOptions.timeout).toBeLessThanOrEqual(15_000);
+    expect(generateContent.mock.calls[2][0].config.httpOptions.timeout).toBeGreaterThanOrEqual(11_000);
+    expect(await operation).toEqual([groundedQuestion]);
+    expect(generateContent).toHaveBeenCalledTimes(3);
+  });
   it("reports insufficiency only after a second empty response and explains the requested count could not be grounded", async () => {
     config.GEMINI_API_KEY = "test-only-key";
     generateContent.mockResolvedValue({ text: "[]" });
@@ -243,6 +424,7 @@ describe("Gemini adapter", () => {
     await expect(generateGeminiQuiz({ topic: "biology", count: 1 })).resolves.toEqual([question]);
     expect(generateContent).toHaveBeenCalledTimes(2);
     expect(generateContent.mock.calls.map(([request]) => request.model)).toEqual(["gemini-primary", "gemini-fallback"]);
+    expect(generateContent.mock.calls[1][0].config.httpOptions.timeout).toBeGreaterThan(20_000);
     expect(generateContent.mock.calls[0][0].config.abortSignal).toBe(generateContent.mock.calls[1][0].config.abortSignal);
   });
   it("does not make more than one fallback attempt when both models are overloaded", async () => {
@@ -318,9 +500,7 @@ describe("Gemini adapter", () => {
     let rejectPrimary!: (error: unknown) => void;
     generateContent
       .mockImplementationOnce(() => new Promise((_, reject) => { rejectPrimary = reject; }))
-      .mockImplementationOnce(({ config: options }) => new Promise((_, reject) => {
-        options.abortSignal.addEventListener("abort", () => reject(new Error("abort")), { once: true });
-      }));
+      .mockResolvedValueOnce({ text: JSON.stringify([question]) });
 
     const operation = generateGeminiQuiz({ topic: "biology", count: 1 });
     await Promise.resolve();
@@ -330,10 +510,9 @@ describe("Gemini adapter", () => {
     await Promise.resolve();
     expect(generateContent).toHaveBeenCalledTimes(2);
     expect(generateContent.mock.calls[1][0].config.httpOptions.timeout).toBeLessThanOrEqual(15000);
+    expect(generateContent.mock.calls[1][0].config.httpOptions.timeout).toBeGreaterThanOrEqual(11000);
 
-    const assertion = expect(operation).rejects.toMatchObject({ status: 504, kind: "upstream-timeout" });
-    await vi.advanceTimersByTimeAsync(15000);
-    await assertion;
+    await expect(operation).resolves.toEqual([question]);
     expect(generateContent).toHaveBeenCalledTimes(2);
   });
   it("shares the original 90-second deadline with the source-output repair attempt", async () => {
@@ -358,6 +537,7 @@ describe("Gemini adapter", () => {
 
     expect(generateContent).toHaveBeenCalledTimes(2);
     expect(generateContent.mock.calls[1][0].config.httpOptions.timeout).toBeLessThanOrEqual(15_000);
+    expect(generateContent.mock.calls[1][0].config.httpOptions.timeout).toBeGreaterThanOrEqual(11_000);
     const assertion = expect(operation).rejects.toMatchObject({ status: 504, kind: "upstream-timeout" });
     await vi.advanceTimersByTimeAsync(15_000);
     await assertion;

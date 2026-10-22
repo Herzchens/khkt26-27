@@ -39,6 +39,11 @@ export class QuizGroundingError extends Error {
   }
 }
 
+export type GroundedQuizCandidates = {
+  questions: GeneratedQuizQuestion[];
+  groundingFailure?: QuizGroundingError["reason"];
+};
+
 function normalizeEvidence(text: string) {
   return text.normalize("NFD").replace(/\p{M}/gu, "").toLocaleLowerCase("vi")
     .replace(/\s+/g, " ").trim();
@@ -66,21 +71,43 @@ function hasSourceGrounding(question: GeneratedQuizQuestion, sourceExcerpt: stri
   return answerIsQuoted && mentionsKeyTerm;
 }
 
-export function parseGeneratedQuiz(text: string, count: number, sourceText?: string): GeneratedQuizQuestion[] {
+function parseQuestionBatch(text: string, count: number) {
   if (Buffer.byteLength(text, "utf8") > 512 * 1024)
     throw new Error("AI output exceeds size limit");
   const questions = z.array(geminiQuestionSchema).length(count).parse(JSON.parse(text));
   if (new Set(questions.map(question => question.id)).size !== questions.length)
     throw new Error("AI question IDs must be distinct");
-  if (sourceText) {
-    const normalizedSource = normalizeEvidence(sourceText);
-    for (const question of questions) {
-      const excerpt = question.sourceExcerpt;
-      if (!excerpt || !normalizedSource.includes(normalizeEvidence(excerpt)))
-        throw new QuizGroundingError("missing-excerpt");
-      if (!hasSourceGrounding(question, excerpt))
-        throw new QuizGroundingError("ungrounded-answer");
-    }
-  }
   return questions;
+}
+
+/** Parses one complete batch and keeps only questions that independently pass source validation. */
+export function parseGroundedQuizCandidates(
+  text: string,
+  count: number,
+  sourceText: string,
+): GroundedQuizCandidates {
+  const questions = parseQuestionBatch(text, count);
+  const normalizedSource = normalizeEvidence(sourceText);
+  const groundedQuestions: GeneratedQuizQuestion[] = [];
+  let groundingFailure: GroundedQuizCandidates["groundingFailure"];
+  for (const question of questions) {
+    const excerpt = question.sourceExcerpt;
+    if (!excerpt || !normalizedSource.includes(normalizeEvidence(excerpt))) {
+      groundingFailure ??= "missing-excerpt";
+      continue;
+    }
+    if (!hasSourceGrounding(question, excerpt)) {
+      groundingFailure ??= "ungrounded-answer";
+      continue;
+    }
+    groundedQuestions.push(question);
+  }
+  return { questions: groundedQuestions, groundingFailure };
+}
+
+export function parseGeneratedQuiz(text: string, count: number, sourceText?: string): GeneratedQuizQuestion[] {
+  if (!sourceText) return parseQuestionBatch(text, count);
+  const result = parseGroundedQuizCandidates(text, count, sourceText);
+  if (result.groundingFailure) throw new QuizGroundingError(result.groundingFailure);
+  return result.questions;
 }

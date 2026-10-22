@@ -3,8 +3,9 @@ import { config } from "./config.js";
 import { ApiError } from "./errors.js";
 import {
   geminiRequestSchema,
+  parseGroundedQuizCandidates,
   parseGeneratedQuiz,
-  QuizGroundingError,
+  type GeneratedQuizQuestion,
   type GenerateQuizInput,
 } from "./geminiSchemas.js";
 
@@ -28,6 +29,12 @@ export const quizResponseSchema = (requireSourceExcerpt = false) => ({
 });
 
 const GENERATION_TIMEOUT_MS = 90_000;
+// Gemini rejects manually configured deadlines below 10 seconds; keep one second above that floor.
+const MIN_PROVIDER_REQUEST_BUDGET_MS = 11_000;
+// Reserve room for a 20-second fallback, an 11-second source repair, and deadline overhead.
+const PRIMARY_WITH_FALLBACK_BUDGET_MS = 55_000;
+const FALLBACK_REQUEST_BUDGET_MS = 20_000;
+const REQUEST_RESERVE_MARGIN_MS = 1_000;
 
 type ProviderErrorDetails = {
   status?: number;
@@ -117,6 +124,27 @@ function invalidQuizOutputError(): ApiError {
     "AI chưa tạo được bộ câu hỏi bám sát nguồn. Hãy kiểm tra bản chép hoặc chọn ít câu hơn rồi thử lại.");
 }
 
+function mergeGroundedQuestions(
+  batches: readonly (readonly GeneratedQuizQuestion[])[],
+  count: number,
+): GeneratedQuizQuestion[] {
+  const questions: GeneratedQuizQuestion[] = [];
+  const ids = new Set<string>();
+  const content = new Set<string>();
+  for (const batch of batches) {
+    for (const question of batch) {
+      const contentKey = question.question.normalize("NFD").replace(/\p{M}/gu, "")
+        .toLocaleLowerCase("vi").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+      if (ids.has(question.id) || content.has(contentKey)) continue;
+      ids.add(question.id);
+      content.add(contentKey);
+      questions.push(question);
+      if (questions.length === count) return questions;
+    }
+  }
+  return questions;
+}
+
 export async function generateGeminiQuiz(input: GenerateQuizInput) {
   const body = geminiRequestSchema.parse(input);
   if (!config.GEMINI_API_KEY)
@@ -125,6 +153,14 @@ export async function generateGeminiQuiz(input: GenerateQuizInput) {
   const controller = new AbortController();
   const deadline = Date.now() + GENERATION_TIMEOUT_MS;
   const timeout = setTimeout(() => controller.abort(), GENERATION_TIMEOUT_MS);
+  const primaryModel = config.GEMINI_MODEL.trim();
+  const fallbackModel = config.GEMINI_FALLBACK_MODEL.trim();
+  const fallbackEnabled = Boolean(fallbackModel && fallbackModel !== primaryModel);
+  const primaryBudgetMs = fallbackEnabled
+    ? PRIMARY_WITH_FALLBACK_BUDGET_MS
+    : body.documentText
+      ? GENERATION_TIMEOUT_MS - MIN_PROVIDER_REQUEST_BUDGET_MS - REQUEST_RESERVE_MARGIN_MS
+      : GENERATION_TIMEOUT_MS;
   const assertWithinDeadline = () => {
     if (controller.signal.aborted || Date.now() >= deadline) {
       controller.abort();
@@ -147,10 +183,14 @@ export async function generateGeminiQuiz(input: GenerateQuizInput) {
         : "";
     return base + grounding + repair;
   };
-  const generateText = async (model: string, repairReason?: OutputRepairReason) => {
+  const generateText = async (
+    model: string,
+    repairReason?: OutputRepairReason,
+    maxRequestBudgetMs = GENERATION_TIMEOUT_MS,
+  ) => {
     const remainingMs = deadline - Date.now();
-    if (remainingMs <= 0) {
-      controller.abort();
+    const requestBudgetMs = Math.min(remainingMs, maxRequestBudgetMs);
+    if (requestBudgetMs < MIN_PROVIDER_REQUEST_BUDGET_MS) {
       throw new ApiError(504, "upstream-timeout", "Tạo câu hỏi quá thời gian chờ. Vui lòng thử lại.");
     }
     const response = await client.models.generateContent({
@@ -159,7 +199,7 @@ export async function generateGeminiQuiz(input: GenerateQuizInput) {
       config: {
         systemInstruction: systemInstruction(repairReason),
         responseMimeType: "application/json", responseJsonSchema: quizResponseSchema(Boolean(body.documentText)),
-        abortSignal: controller.signal, httpOptions: { timeout: remainingMs },
+        abortSignal: controller.signal, httpOptions: { timeout: requestBudgetMs },
       },
     });
     assertWithinDeadline();
@@ -169,16 +209,18 @@ export async function generateGeminiQuiz(input: GenerateQuizInput) {
     let repairModel = config.GEMINI_MODEL;
     let text: string;
     try {
-      text = await generateText(repairModel);
+      text = await generateText(repairModel, undefined, primaryBudgetMs);
     } catch (error) {
-      const fallbackModel = config.GEMINI_FALLBACK_MODEL.trim();
-      const primaryModel = config.GEMINI_MODEL.trim();
       if (controller.signal.aborted || !isOverloadedProviderError(error) ||
-          !fallbackModel || fallbackModel === primaryModel)
+          !fallbackEnabled)
         throw providerApiError(error, controller.signal.aborted);
       repairModel = fallbackModel;
       try {
-        text = await generateText(fallbackModel);
+        text = await generateText(
+          fallbackModel,
+          undefined,
+          body.documentText ? FALLBACK_REQUEST_BUDGET_MS : GENERATION_TIMEOUT_MS,
+        );
       } catch (fallbackError) {
         throw providerApiError(fallbackError, controller.signal.aborted);
       }
@@ -186,17 +228,30 @@ export async function generateGeminiQuiz(input: GenerateQuizInput) {
 
     assertWithinDeadline();
     let repairReason: OutputRepairReason | undefined;
+    let groundedQuestions: GeneratedQuizQuestion[] = [];
     if (body.documentText && isEmptyQuestionArray(text)) {
       repairReason = "empty";
+    } else if (body.documentText) {
+      try {
+        const candidates = parseGroundedQuizCandidates(text, body.count, body.documentText);
+        groundedQuestions = candidates.questions;
+        if (candidates.groundingFailure) repairReason = "grounding";
+        else {
+          assertWithinDeadline();
+          return groundedQuestions;
+        }
+      } catch (error) {
+        if (error instanceof ApiError) throw error;
+        throw invalidQuizOutputError();
+      }
     } else {
       try {
-        const questions = parseGeneratedQuiz(text, body.count, body.documentText);
+        const questions = parseGeneratedQuiz(text, body.count);
         assertWithinDeadline();
         return questions;
       } catch (error) {
         if (error instanceof ApiError) throw error;
-        if (body.documentText && error instanceof QuizGroundingError) repairReason = "grounding";
-        else throw invalidQuizOutputError();
+        throw invalidQuizOutputError();
       }
     }
 
@@ -211,7 +266,16 @@ export async function generateGeminiQuiz(input: GenerateQuizInput) {
     if (repairReason === "empty" && isEmptyQuestionArray(repairedText))
       throw insufficientStudyMaterialError();
     try {
-      const questions = parseGeneratedQuiz(repairedText, body.count, body.documentText);
+      const questions = body.documentText
+        ? parseGeneratedQuiz(
+          JSON.stringify(mergeGroundedQuestions([
+            parseGroundedQuizCandidates(repairedText, body.count, body.documentText).questions,
+            groundedQuestions,
+          ], body.count)),
+          body.count,
+          body.documentText,
+        )
+        : parseGeneratedQuiz(repairedText, body.count);
       assertWithinDeadline();
       return questions;
     } catch (error) {
