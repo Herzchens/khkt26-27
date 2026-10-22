@@ -31,6 +31,14 @@ export const geminiQuestionSchema = z.object({
 export type GenerateQuizInput = z.input<typeof geminiRequestSchema>;
 export type GeneratedQuizQuestion = z.infer<typeof geminiQuestionSchema>;
 
+export class QuizGroundingError extends Error {
+  constructor(public reason: "missing-excerpt" | "ungrounded-answer") {
+    super(reason === "missing-excerpt"
+      ? "AI question has no exact source excerpt"
+      : "AI question is not grounded in its source excerpt");
+  }
+}
+
 function normalizeEvidence(text: string) {
   return text.normalize("NFD").replace(/\p{M}/gu, "").toLocaleLowerCase("vi")
     .replace(/\s+/g, " ").trim();
@@ -69,9 +77,9 @@ export function parseGeneratedQuiz(text: string, count: number, sourceText?: str
     for (const question of questions) {
       const excerpt = question.sourceExcerpt;
       if (!excerpt || !normalizedSource.includes(normalizeEvidence(excerpt)))
-        throw new Error("AI question has no exact source excerpt");
+        throw new QuizGroundingError("missing-excerpt");
       if (!hasSourceGrounding(question, excerpt))
-        throw new Error("AI question is not grounded in its source excerpt");
+        throw new QuizGroundingError("ungrounded-answer");
     }
   }
   return questions;

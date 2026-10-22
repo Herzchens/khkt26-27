@@ -15,6 +15,36 @@ const groundedQuestion = {
   explanation: "Chlorophyll absorbs light energy during photosynthesis.",
   sourceExcerpt: "chlorophyll absorbs light energy",
 };
+const substantialStudyGuide = `# Quang hợp ở thực vật
+
+## Pha sáng
+Trong pha sáng, diệp lục hấp thụ năng lượng ánh sáng. Nước bị phân tách và giải phóng oxygen. ATP và NADPH cung cấp năng lượng cùng electron cho các phản ứng tiếp theo.
+
+## Chu trình Calvin
+Trong chu trình Calvin, carbon dioxide được cố định thành carbohydrate. Enzyme Rubisco xúc tác bước cố định carbon đầu tiên. Sản phẩm carbohydrate có thể được dùng để tổng hợp đường và các hợp chất hữu cơ khác.
+
+## Mối liên hệ giữa hai giai đoạn
+Pha sáng tạo ATP và NADPH, còn chu trình Calvin sử dụng chúng cùng carbon dioxide để tạo carbohydrate. Vì vậy, hai giai đoạn liên kết với nhau trong quá trình chuyển năng lượng ánh sáng thành năng lượng hóa học.`;
+const studyGuideQuestions = [
+  {
+    id: "guide-q1", question: "Trong chu trình Calvin, chất nào được cố định thành carbohydrate?",
+    options: ["carbon dioxide", "oxygen", "nước", "diệp lục"], correctAnswerIndex: 0,
+    explanation: "Chu trình Calvin cố định carbon dioxide thành carbohydrate.", knowledgePoint: "Cố định carbon",
+    sourceExcerpt: "Trong chu trình Calvin, carbon dioxide được cố định thành carbohydrate.",
+  },
+  {
+    id: "guide-q2", question: "Chất nào hấp thụ năng lượng ánh sáng trong pha sáng?",
+    options: ["Rubisco", "diệp lục", "carbon dioxide", "carbohydrate"], correctAnswerIndex: 1,
+    explanation: "Diệp lục hấp thụ năng lượng ánh sáng trong pha sáng.", knowledgePoint: "Pha sáng",
+    sourceExcerpt: "Trong pha sáng, diệp lục hấp thụ năng lượng ánh sáng.",
+  },
+  {
+    id: "guide-q3", question: "Những phân tử nào cung cấp năng lượng và electron cho phản ứng tiếp theo?",
+    options: ["ATP và NADPH", "oxygen và nước", "Rubisco và đường", "ánh sáng và diệp lục"], correctAnswerIndex: 0,
+    explanation: "ATP và NADPH cung cấp năng lượng cùng electron cho các phản ứng tiếp theo.", knowledgePoint: "ATP và NADPH",
+    sourceExcerpt: "ATP và NADPH cung cấp năng lượng cùng electron cho các phản ứng tiếp theo.",
+  },
+];
 const originalKey = config.GEMINI_API_KEY;
 const originalModel = config.GEMINI_MODEL;
 const originalFallbackModel = config.GEMINI_FALLBACK_MODEL;
@@ -109,6 +139,81 @@ describe("Gemini adapter", () => {
       topic: "biology", documentAttached: true, documentText: sourceText, count: 1,
     })).rejects.toMatchObject({ status: 422, kind: "insufficient-study-material" });
   });
+  it("repairs one empty response from a substantial study guide without changing its source or requested count", async () => {
+    config.GEMINI_API_KEY = "test-only-key";
+    generateContent
+      .mockResolvedValueOnce({ text: "[]" })
+      .mockResolvedValueOnce({ text: JSON.stringify(studyGuideQuestions) });
+
+    await expect(generateGeminiQuiz({
+      topic: "biology", documentAttached: true, documentText: substantialStudyGuide, count: 3,
+    })).resolves.toEqual(studyGuideQuestions);
+
+    expect(generateContent).toHaveBeenCalledTimes(2);
+    const first = generateContent.mock.calls[0][0];
+    const retry = generateContent.mock.calls[1][0];
+    expect(JSON.parse(first.contents).studyData).toMatchObject({
+      documentAttached: true, documentText: substantialStudyGuide, count: 3,
+    });
+    expect(retry.contents).toBe(first.contents);
+    expect(JSON.parse(retry.contents).studyData.count).toBe(3);
+    expect(retry.config.systemInstruction).toMatch(/lần trước/i);
+    expect(retry.config.systemInstruction).not.toContain("[]");
+  });
+  it("repairs one response with invalid source evidence while retaining strict server validation", async () => {
+    config.GEMINI_API_KEY = "test-only-key";
+    const unsupportedExcerpt = {
+      ...studyGuideQuestions[0], sourceExcerpt: "Một đoạn không có trong bản ôn tập.",
+    };
+    generateContent
+      .mockResolvedValueOnce({ text: JSON.stringify([unsupportedExcerpt, ...studyGuideQuestions.slice(1)]) })
+      .mockResolvedValueOnce({ text: JSON.stringify(studyGuideQuestions) });
+
+    await expect(generateGeminiQuiz({
+      topic: "biology", documentAttached: true, documentText: substantialStudyGuide, count: 3,
+    })).resolves.toEqual(studyGuideQuestions);
+    expect(generateContent).toHaveBeenCalledTimes(2);
+    const retryInstruction = generateContent.mock.calls[1][0].config.systemInstruction;
+    expect(retryInstruction).toContain("nguyên văn");
+    expect(retryInstruction).not.toContain(unsupportedExcerpt.sourceExcerpt);
+  });
+  it("reports insufficiency only after a second empty response and explains the requested count could not be grounded", async () => {
+    config.GEMINI_API_KEY = "test-only-key";
+    generateContent.mockResolvedValue({ text: "[]" });
+
+    const failure = await generateGeminiQuiz({
+      topic: "biology", documentAttached: true, documentText: substantialStudyGuide, count: 3,
+    }).catch(error => error);
+    expect(failure).toMatchObject({ status: 422, kind: "insufficient-study-material" });
+    expect(failure.message).toMatch(/không tạo đủ câu hỏi có căn cứ.*số lượng đã chọn/i);
+    expect(generateContent).toHaveBeenCalledTimes(2);
+    expect(generateContent.mock.calls.every(([request]) => JSON.parse(request.contents).studyData.count === 3)).toBe(true);
+  });
+  it("does not call source data insufficient when a grounding failure is followed by an empty response", async () => {
+    config.GEMINI_API_KEY = "test-only-key";
+    const unsupportedExcerpt = {
+      ...studyGuideQuestions[0], sourceExcerpt: "Một đoạn không có trong bản ôn tập.",
+    };
+    generateContent
+      .mockResolvedValueOnce({ text: JSON.stringify([unsupportedExcerpt, ...studyGuideQuestions.slice(1)]) })
+      .mockResolvedValueOnce({ text: "[]" });
+
+    await expect(generateGeminiQuiz({
+      topic: "biology", documentAttached: true, documentText: substantialStudyGuide, count: 3,
+    })).rejects.toMatchObject({ status: 502, kind: "invalid-ai-output" });
+    expect(generateContent).toHaveBeenCalledTimes(2);
+  });
+  it("does not retry a provider error during output repair", async () => {
+    config.GEMINI_API_KEY = "test-only-key";
+    generateContent
+      .mockResolvedValueOnce({ text: "[]" })
+      .mockRejectedValueOnce({ status: 429, message: "provider details must stay private" });
+
+    await expect(generateGeminiQuiz({
+      topic: "biology", documentAttached: true, documentText: substantialStudyGuide, count: 3,
+    })).rejects.toMatchObject({ status: 429, kind: "provider-quota-exceeded" });
+    expect(generateContent).toHaveBeenCalledTimes(2);
+  });
   it.each(["not json", "[]", undefined])("rejects invalid/refused output %s", async text => {
     config.GEMINI_API_KEY = "test-only-key";
     generateContent.mockResolvedValue({ text });
@@ -187,6 +292,15 @@ describe("Gemini adapter", () => {
     await expect(generateGeminiQuiz({ topic: "biology", count: 1 })).rejects.toMatchObject({ kind: "invalid-ai-output" });
     expect(generateContent).toHaveBeenCalledTimes(1);
   });
+  it("does not retry malformed output from a source-grounded request", async () => {
+    config.GEMINI_API_KEY = "test-only-key";
+    generateContent.mockResolvedValue({ text: "not json" });
+
+    await expect(generateGeminiQuiz({
+      topic: "biology", documentAttached: true, documentText: substantialStudyGuide, count: 3,
+    })).rejects.toMatchObject({ status: 502, kind: "invalid-ai-output" });
+    expect(generateContent).toHaveBeenCalledTimes(1);
+  });
   it("aborts requests after 90 seconds", async () => {
     vi.useFakeTimers(); config.GEMINI_API_KEY = "test-only-key";
     config.GEMINI_FALLBACK_MODEL = "gemini-fallback";
@@ -219,6 +333,33 @@ describe("Gemini adapter", () => {
 
     const assertion = expect(operation).rejects.toMatchObject({ status: 504, kind: "upstream-timeout" });
     await vi.advanceTimersByTimeAsync(15000);
+    await assertion;
+    expect(generateContent).toHaveBeenCalledTimes(2);
+  });
+  it("shares the original 90-second deadline with the source-output repair attempt", async () => {
+    vi.useFakeTimers();
+    config.GEMINI_API_KEY = "test-only-key";
+    let resolveFirst!: (response: { text: string }) => void;
+    generateContent
+      .mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve; }))
+      .mockImplementationOnce(({ config: options }) => new Promise((_, reject) => {
+        options.abortSignal.addEventListener("abort", () => reject(new Error("abort")), { once: true });
+      }));
+
+    const operation = generateGeminiQuiz({
+      topic: "biology", documentAttached: true, documentText: substantialStudyGuide, count: 3,
+    });
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(75_000);
+    resolveFirst({ text: "[]" });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(generateContent).toHaveBeenCalledTimes(2);
+    expect(generateContent.mock.calls[1][0].config.httpOptions.timeout).toBeLessThanOrEqual(15_000);
+    const assertion = expect(operation).rejects.toMatchObject({ status: 504, kind: "upstream-timeout" });
+    await vi.advanceTimersByTimeAsync(15_000);
     await assertion;
     expect(generateContent).toHaveBeenCalledTimes(2);
   });

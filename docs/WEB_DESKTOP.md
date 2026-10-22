@@ -15,8 +15,16 @@ npm start
 
 Để xem bản production, dừng máy chủ phát triển trước vì preview cũng dùng cổng 8084 và giữ terminal mở:
 
+`npm run preview` chỉ phục vụ giao diện đã build trong `dist/`. Khi không cấu hình API riêng, các yêu cầu `/api/*` được chuyển tới `127.0.0.1:3000`. Để đăng nhập, đồng bộ và dùng AI trên preview, khởi động API trong một terminal riêng và giữ nó chạy:
+
 ```bash
-# Đặt VITE_API_URL trong .env hoặc môi trường build.
+npm --prefix backend run dev:local
+```
+
+Trong terminal thứ hai:
+
+```bash
+# Chỉ đặt VITE_API_URL khi dùng một API riêng thay cho API local.
 # Ví dụ https://api.example.com/api/v1 (không chứa khóa bí mật).
 npm run build:web
 npm run preview
