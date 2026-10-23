@@ -1,3 +1,4 @@
+import { memo } from "react";
 import {
   OVERVIEW_FARMSTEADS,
   OVERVIEW_TREE_CLUSTERS,
@@ -206,7 +207,7 @@ function TravelTile({ coast }: { coast: boolean }) {
   );
 }
 
-export function MapScenery({ kind, coast = false }: { kind: SceneryKind; coast?: boolean }) {
+export const MapScenery = memo(function MapScenery({ kind, coast = false }: { kind: SceneryKind; coast?: boolean }) {
   if (kind === "travel") {
     return (
       <g className="map-scenery map-scenery--travel map-scenery--static" aria-hidden="true">
@@ -249,7 +250,7 @@ export function MapScenery({ kind, coast = false }: { kind: SceneryKind; coast?:
       </g>
     </g>
   );
-}
+});
 
 export function OverheadStationFootprint({
   x = 0,

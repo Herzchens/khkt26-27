@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useBrowserView } from "./navigation";
 import { useAuthStore } from "@/store/authStore";
 import { post, request } from "@/services/api";
@@ -433,21 +433,26 @@ function AdventureWorkspace() {
   const pendingSoloSeconds = saved.pending.filter(session => !session.groupId &&
     session.userId === owner && !data?.sessions.some(stored => stored.id === session.id))
     .reduce((total, session) => total + session.seconds, 0);
-  const pendingSoloProgress = explorationProgress(carriage?.journey, pendingSoloSeconds);
-  const personalJourney = carriage?.journey && pendingSoloSeconds > 0
-    ? { ...carriage.journey, station: pendingSoloProgress.station, remaining: pendingSoloProgress.remainingSeconds }
-    : carriage?.journey;
+  const personalJourney = useMemo(() => {
+    if (!carriage?.journey || pendingSoloSeconds <= 0) return carriage?.journey;
+    const pendingSoloProgress = explorationProgress(carriage.journey, pendingSoloSeconds);
+    return {
+      ...carriage.journey,
+      station: pendingSoloProgress.station,
+      remaining: pendingSoloProgress.remainingSeconds,
+    };
+  }, [carriage?.journey, pendingSoloSeconds]);
   const journey = mode === "group" && group ? group.journey : personalJourney;
-  const trainCars =
-    mode === "group" && group
+  const trainCars = useMemo(
+    () => mode === "group" && group
       ? group.members
-      : [
-          {
-            id: owner,
-            name: carriage?.name ?? "Toa Mây",
-            color: carriage?.color ?? "#398575",
-          },
-        ];
+      : [{
+          id: owner,
+          name: carriage?.name ?? "Toa Mây",
+          color: carriage?.color ?? "#398575",
+        }],
+    [mode, group, owner, carriage?.name, carriage?.color],
+  );
   const availableTopics = [
     ...studyTopics,
     ...topics.filter((t) => !studyTopics.some((s) => s.id === t.id)),

@@ -171,6 +171,27 @@ describe("admin SQL against in-memory Postgres", () => {
     expect(report.body).not.toContain("Private material");
     expect(report.body).not.toContain("Private journal entry");
 
+    for (const filter of [`accountId=${accountId}`, `groupId=${groupId}`]) {
+      const scoped = await app.inject({ url: `/api/v1/admin/report?days=7&${filter}`, headers });
+      expect(scoped.statusCode, scoped.body).toBe(200);
+      expect(scoped.json()).toMatchObject({
+        analysisLimit: 20_000,
+        matchingSessionCount: 2,
+        recordsAnalyzed: 2,
+        totals: { sessionCount: 2, focusedSeconds: 135 },
+      });
+      const csv = await app.inject({ url: `/api/v1/admin/report/export.csv?days=7&${filter}`, headers });
+      expect(csv.statusCode, csv.body).toBe(200);
+      expect(csv.headers["content-type"]).toContain("text/csv");
+      expect(csv.body).toContain("analyzed=2;matching=2;truncated=false");
+      expect(csv.body).not.toContain("Private");
+    }
+    const missingAccount = await app.inject({
+      url: `/api/v1/admin/report?days=7&accountId=${adminId}`, headers,
+    });
+    expect(missingAccount.statusCode, missingAccount.body).toBe(200);
+    expect(missingAccount.json()).toMatchObject({ matchingSessionCount: 0, totals: { sessionCount: 0 } });
+
     const groups = await app.inject({
       url: "/api/v1/admin/groups?q=AlPhA&limit=1&offset=0",
       headers,

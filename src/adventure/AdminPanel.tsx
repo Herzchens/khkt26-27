@@ -12,6 +12,7 @@ import type {
   AdminGroup,
   AdminMetricTotals,
   AdminPeriod,
+  AdminReportFilters,
   AdminReport,
   AdminSession,
 } from "../services/adminContracts";
@@ -101,19 +102,120 @@ export function adminRowsForKey<T>(result: { key: string; rows: T[]; total: numb
   return result?.key === key ? { rows: result.rows, total: result.total } : { rows: [] as T[], total: 0 };
 }
 
-export function AdminOverview({ report }: { report: AdminReport }) {
+export function adminReportForKey<T>(result: { key: string; value: T } | null, key: string) {
+  return result?.key === key ? result.value : null;
+}
+
+export function adminTrendPath(values: readonly (number | null)[], maximum: number, width = 700, height = 160) {
+  const padding = 16;
+  const safeMaximum = Number.isFinite(maximum) && maximum > 0 ? maximum : 1;
+  const horizontalRange = Math.max(0, width - padding * 2);
+  const verticalRange = Math.max(0, height - padding * 2);
+  let previousPoint = false;
+  return values.map((value, index) => {
+    if (value === null || !Number.isFinite(value)) {
+      previousPoint = false;
+      return null;
+    }
+    const x = values.length <= 1 ? width / 2 : padding + (index / (values.length - 1)) * horizontalRange;
+    const scaledValue = Math.max(0, Math.min(safeMaximum, value));
+    const y = height - padding - (scaledValue / safeMaximum) * verticalRange;
+    const command = `${previousPoint ? "L" : "M"}${x},${y}`;
+    previousPoint = true;
+    return command;
+  }).filter((command): command is string => command !== null).join(" ");
+}
+
+type DailyAdminMetrics = AdminReport["daily"][number];
+
+function TrendChart({
+  chartId,
+  title,
+  description,
+  rows,
+  value,
+  maximum,
+  formatValue = (item) => item.toLocaleString("vi-VN", { maximumFractionDigits: 1 }),
+}: {
+  chartId: string;
+  title: string;
+  description: string;
+  rows: AdminReport["daily"];
+  value: (row: DailyAdminMetrics) => number | null;
+  maximum?: number;
+  formatValue?: (item: number) => string;
+}) {
+  const values = rows.map(value);
+  const chartMaximum = maximum ?? Math.max(1, ...values.filter((item): item is number => item !== null));
+  const path = adminTrendPath(values, chartMaximum);
+  const width = 700;
+  const height = 160;
+  const padding = 16;
+  const verticalRange = height - padding * 2;
+  const horizontalRange = width - padding * 2;
+  const xFor = (index: number) => rows.length <= 1 ? width / 2 : padding + (index / (rows.length - 1)) * horizontalRange;
+  const yFor = (item: number | null) => item === null ? height - padding : height - padding - (Math.max(0, Math.min(chartMaximum, item)) / chartMaximum) * verticalRange;
+  return <figure className="admin-trend-chart">
+    <figcaption>
+      <h4>{title}</h4>
+      <p>{description}</p>
+    </figcaption>
+    <div className="admin-chart-plot">
+      <div className="admin-chart-scale" aria-hidden="true"><span>{formatValue(chartMaximum)}</span><span>{formatValue(chartMaximum / 2)}</span><span>{formatValue(0)}</span></div>
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-labelledby={`${chartId}-title ${chartId}-description`} preserveAspectRatio="none">
+      <title id={`${chartId}-title`}>{title}</title>
+      <desc id={`${chartId}-description`}>{description} Trục dọc từ {formatValue(0)} đến {formatValue(chartMaximum)}. Mỗi điểm đại diện cho một ngày UTC, từ {rows[0]?.dateUtc ?? "không có dữ liệu"} đến {rows.at(-1)?.dateUtc ?? "không có dữ liệu"}.</desc>
+      <line x1={padding} x2={width - padding} y1={height - padding} y2={height - padding} className="admin-chart-axis-line" />
+      <line x1={padding} x2={width - padding} y1={height / 2} y2={height / 2} className="admin-chart-grid-line" />
+      {path && <path d={path} className="admin-chart-line" />}
+      {values.map((item, index) => item === null ? null : <circle key={`${rows[index].dateUtc}-${index}`} cx={xFor(index)} cy={yFor(item)} r="2.6" className="admin-chart-point"><title>{`${rows[index].dateUtc}: ${formatValue(item)}`}</title></circle>)}
+    </svg>
+    </div>
+    <div className="admin-chart-dates"><span>{rows[0]?.dateUtc ?? ""}</span><span>{rows.at(-1)?.dateUtc ?? ""}</span></div>
+  </figure>;
+}
+
+function MiniBar({ value, maximum, label }: { value: number; maximum: number; label: string }) {
+  const width = maximum > 0 ? Math.max(0, Math.min(100, (value / maximum) * 100)) : 0;
+  return <div className="admin-mini-metric">
+    <div className="admin-mini-track" aria-hidden="true"><span style={{ width: `${width}%` }} /></div>
+    <span>{label}</span>
+  </div>;
+}
+
+function TopicComparison({ rows }: { rows: AdminReport["topics"] }) {
+  const displayed = rows.slice(0, 8);
+  const maxFocus = Math.max(1, ...displayed.map((row) => row.focusedSeconds));
+  return <section className="admin-overview-section">
+    <h3>So sánh chủ đề</h3>
+    <p className="admin-analysis-note">Tám chủ đề đầu theo thời gian tập trung. Hoàn tất dùng số phiên hoàn tất / tổng phiên; độ phủ quiz dùng phiên đã chấm / tổng phiên; điểm quiz dùng điểm đạt / tổng điểm ở các quiz đã chấm.</p>
+    <div className="admin-overview-scroll" role="region" aria-label="So sánh chủ đề theo phiên, tập trung, hoàn tất và quiz" tabIndex={0}>
+      <table className="admin-data-table admin-topic-compare">
+        <thead><tr><th>Chủ đề</th><th>Thời gian tập trung</th><th>Hoàn tất / phiên</th><th>Điểm quiz</th><th>Độ phủ quiz</th></tr></thead>
+        <tbody>{displayed.length ? displayed.map((row) => <tr key={row.topic}>
+          <th scope="row">{row.topic}<small>{row.sessionCount.toLocaleString("vi-VN")} phiên</small></th>
+          <td><MiniBar value={row.focusedSeconds} maximum={maxFocus} label={formatAdminDuration(row.focusedSeconds)} /></td>
+          <td><MiniBar value={row.completionPercent} maximum={100} label={`${row.completedSessions}/${row.sessionCount} · ${percent(row.completionPercent)}`} /></td>
+          <td><MiniBar value={row.quizScorePercent ?? 0} maximum={100} label={row.quizScorePercent === null ? "Chưa có dữ liệu" : `${row.quizScore}/${row.quizTotal} · ${percent(row.quizScorePercent)}`} /><small>{row.gradedQuizSessions.toLocaleString("vi-VN")} phiên có quiz đã chấm</small></td>
+          <td><MiniBar value={row.quizCoveragePercent} maximum={100} label={`${row.gradedQuizSessions}/${row.sessionCount} · ${percent(row.quizCoveragePercent)}`} /></td>
+        </tr>) : <tr><td colSpan={5}>Chưa có dữ liệu trong khoảng thời gian này.</td></tr>}</tbody>
+      </table>
+    </div>
+  </section>;
+}
+
+export function AdminOverview({ report, scopeLabel }: { report: AdminReport; scopeLabel?: string }) {
   const totals = report.totals;
   const indicators = adminStudyIndicators(totals);
-  const maxFocus = Math.max(1, ...report.daily.map((day) => day.focusedSeconds));
   return <div className="admin-overview">
     <p className="admin-period-note">
-      {report.fromUtc.slice(0, 10)} đến {report.asOfUtc.slice(0, 10)} · Mọi mốc thời gian dùng UTC. Bao gồm phiên khách và phiên tài khoản đã lưu.
+      {report.fromUtc.slice(0, 10)} đến {report.asOfUtc.slice(0, 10)} · Mọi mốc thời gian dùng UTC. {scopeLabel ? `Phạm vi: ${scopeLabel}.` : "Bao gồm phiên khách và phiên tài khoản đã lưu."}
     </p>
     {report.truncated && <p className="admin-truncated" role="status">
-      Đã phân tích {report.recordsAnalyzed.toLocaleString("vi-VN")} trên {report.matchingSessionCount.toLocaleString("vi-VN")} phiên khớp khoảng thời gian. Các tổng bên dưới chỉ tính phần đã phân tích.
+      Đã phân tích {report.recordsAnalyzed.toLocaleString("vi-VN")} trên {report.matchingSessionCount.toLocaleString("vi-VN")} phiên khớp khoảng thời gian, với giới hạn tối đa {report.analysisLimit.toLocaleString("vi-VN")} phiên. Các tổng, biểu đồ, bảng và CSV chỉ tính phần đã phân tích.
     </p>}
     <dl className="admin-metrics">
-      <MetricCard label="Phiên trong báo cáo" value={totals.sessionCount.toLocaleString("vi-VN")} note={`${report.matchingSessionCount.toLocaleString("vi-VN")} phiên khớp`} />
+      <MetricCard label="Phiên trong báo cáo" value={totals.sessionCount.toLocaleString("vi-VN")} note={`${report.matchingSessionCount.toLocaleString("vi-VN")} phiên khớp · giới hạn phân tích ${report.analysisLimit.toLocaleString("vi-VN")} phiên`} />
       <MetricCard label="Thời lượng học dự kiến" value={formatAdminDuration(totals.plannedStudySeconds)} />
       <MetricCard label="Thời gian học thực tế" value={formatAdminDuration(totals.actualStudySeconds)} note="Đã trừ thời gian nghỉ theo lịch" />
       <MetricCard label="Thời gian tập trung" value={formatAdminDuration(totals.focusedSeconds)} note="Khoảng focus và học tài liệu đã lưu" />
@@ -129,19 +231,20 @@ export function AdminOverview({ report }: { report: AdminReport }) {
         <MetricCard label="Xao nhãng mỗi giờ học" value={indicators.distractionsPerHour === null ? "Chưa có dữ liệu" : `${indicators.distractionsPerHour.toLocaleString("vi-VN", { maximumFractionDigits: 1 })} lượt/giờ`} note="Chuẩn hóa theo thời gian học thực tế, đã trừ nghỉ" />
         <MetricCard label="Thời lượng trung bình mỗi phiên" value={indicators.averageStudySeconds === null ? "Chưa có dữ liệu" : formatAdminDuration(indicators.averageStudySeconds)} note="Tính cả các chuyến kết thúc sớm" />
       </dl>
-      <p className="admin-analysis-note">Đối chiếu số phiên và độ phủ quiz khi so sánh chủ đề. Tỷ lệ tập trung mô tả nhịp học; điểm quiz chỉ phản ánh những câu đã được chấm.</p>
+      <p className="admin-analysis-note">Đối chiếu số phiên và độ phủ quiz khi so sánh chủ đề. Tỷ lệ hoàn tất = phiên đạt mục tiêu / tổng phiên. Độ phủ quiz = phiên có kết quả chấm / tổng phiên. Điểm quiz = điểm đạt / tổng điểm ở quiz đã chấm; đây là mô tả số liệu, không giải thích nguyên nhân.</p>
     </section>
     <section className="admin-overview-section">
-      <h3>Thời gian tập trung theo ngày · UTC</h3>
-      <div className="admin-trend" role="img" aria-label="Biểu đồ thời gian tập trung theo ngày, múi giờ UTC">
-        {report.daily.map((day) => <div className="admin-trend-row" key={day.dateUtc}>
-          <span>{day.dateUtc.slice(5)}</span>
-          <div className="admin-trend-track"><span style={{ width: `${Math.max(0, Math.min(100, (day.focusedSeconds / maxFocus) * 100))}%` }} /></div>
-          <small>{formatAdminDuration(day.focusedSeconds)}</small>
-        </div>)}
+      <h3>Xu hướng hàng ngày · UTC</h3>
+      <div className="admin-chart-grid">
+        <TrendChart chartId="admin-focus-trend" title="Thời gian tập trung" description="Tổng thời gian focus và học tài liệu đã lưu mỗi ngày." rows={report.daily} value={(row) => row.focusedSeconds} formatValue={formatAdminDuration} />
+        <TrendChart chartId="admin-session-trend" title="Số phiên mỗi ngày" description="Số phiên bắt đầu mỗi ngày UTC." rows={report.daily} value={(row) => row.sessionCount} />
+        <TrendChart chartId="admin-completion-trend" title="Hoàn tất / phiên" description="Tỷ lệ phiên đạt mục tiêu trong tổng số phiên của ngày; số phiên là mẫu số." rows={report.daily} value={(row) => row.sessionCount ? row.completionPercent : null} maximum={100} formatValue={percent} />
+        <TrendChart chartId="admin-quiz-coverage-trend" title="Độ phủ quiz theo ngày" description="Phiên có quiz đã chấm trên tổng phiên của ngày; số phiên là mẫu số." rows={report.daily} value={(row) => row.sessionCount ? row.quizCoveragePercent : null} maximum={100} formatValue={percent} />
+        <TrendChart chartId="admin-quiz-score-trend" title="Điểm quiz theo ngày" description="Điểm đạt trên tổng điểm ở các quiz đã chấm; ngày không có quiz đã chấm được để trống." rows={report.daily} value={(row) => row.quizScorePercent} maximum={100} formatValue={percent} />
       </div>
     </section>
     <MetricTable rows={report.daily} heading="Xu hướng hàng ngày · UTC" kind="daily" />
+    <TopicComparison rows={report.topics} />
     <MetricTable rows={report.topics} heading="Phân tích theo chủ đề" kind="topic" />
   </div>;
 }
@@ -208,6 +311,8 @@ export function AdminPanel({ onClose, onAccessDenied }: { onClose?: () => void; 
   const [reportLoading, setReportLoading] = useState(true);
   const [reportError, setReportError] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [detailReportResult, setDetailReportResult] = useState<{ key: string; value: AdminReport } | null>(null);
+  const [detailReportError, setDetailReportError] = useState<{ key: string; message: string } | null>(null);
   const [accountSearch, setAccountSearch] = useState("");
   const [accountQuery, setAccountQuery] = useState("");
   const [accounts, setAccounts] = useState<AdminAccount[]>([]);
@@ -228,6 +333,15 @@ export function AdminPanel({ onClose, onAccessDenied }: { onClose?: () => void; 
   const [sessionOffset, setSessionOffset] = useState(0);
   const [sessionLoading, setSessionLoading] = useState(false);
   const [sessionError, setSessionError] = useState("");
+  const selectedAccountId = selectedAccount?.id;
+  const selectedGroupId = selectedGroup?.id;
+  const reportFilters: AdminReportFilters | null = selectedAccountId
+    ? { accountId: selectedAccountId }
+    : selectedGroupId ? { groupId: selectedGroupId } : null;
+  const reportKey = `${days}:${selectedAccountId ?? ""}:${selectedGroupId ?? ""}`;
+  const detailReport = reportFilters ? adminReportForKey(detailReportResult, reportKey) : null;
+  const detailReportErrorMessage = detailReportError?.key === reportKey ? detailReportError.message : "";
+  const detailReportLoading = Boolean(reportFilters && !detailReport && !detailReportErrorMessage);
   const sessionKey = `${days}:${selectedAccount?.id ?? ""}:${selectedGroup?.id ?? ""}:${sessionOffset}`;
   const { rows: sessions, total: sessionTotal } = adminRowsForKey(sessionResult, sessionKey);
   const deniedCallback = useRef(onAccessDenied);
@@ -241,6 +355,8 @@ export function AdminPanel({ onClose, onAccessDenied }: { onClose?: () => void; 
     setAccounts([]);
     setGroups([]);
     setSessionResult(null);
+    setDetailReportResult(null);
+    setDetailReportError(null);
     setAccountTotal(0);
     setGroupTotal(0);
     setSelectedAccount(null);
@@ -263,6 +379,27 @@ export function AdminPanel({ onClose, onAccessDenied }: { onClose?: () => void; 
       .finally(() => { if (!controller.signal.aborted) setReportLoading(false); });
     return () => controller.abort();
   }, [days, clearAdminData]);
+
+  useEffect(() => {
+    const filters = selectedAccountId
+      ? { accountId: selectedAccountId }
+      : selectedGroupId ? { groupId: selectedGroupId } : null;
+    if (!filters) {
+      setDetailReportResult(null);
+      setDetailReportError(null);
+      return;
+    }
+    const controller = new AbortController();
+    setDetailReportError(null);
+    fetchAdminReport(days, controller.signal, filters)
+      .then((value) => { if (!controller.signal.aborted) setDetailReportResult({ key: reportKey, value }); })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        if (isDenied(error)) clearAdminData();
+        else setDetailReportError({ key: reportKey, message: errorMessage(error) });
+      });
+    return () => controller.abort();
+  }, [clearAdminData, days, reportKey, selectedAccountId, selectedGroupId]);
 
   useEffect(() => {
     if (tab !== "accounts") return;
@@ -361,6 +498,14 @@ export function AdminPanel({ onClose, onAccessDenied }: { onClose?: () => void; 
     setSessionOffset(0);
   };
 
+  const visibleExportFilters: AdminReportFilters = tab === "accounts" && selectedAccount
+    ? { accountId: selectedAccount.id }
+    : tab === "groups" && selectedGroup ? { groupId: selectedGroup.id } : {};
+  const exportButtonLabel = exporting
+    ? "Đang xuất…"
+    : visibleExportFilters.accountId ? "Tải CSV tài khoản"
+      : visibleExportFilters.groupId ? "Tải CSV nhóm" : "Tải CSV tổng hợp";
+
   const exportCsv = async () => {
     const controller = new AbortController();
     exportRequest.current?.abort();
@@ -368,14 +513,17 @@ export function AdminPanel({ onClose, onAccessDenied }: { onClose?: () => void; 
     setExporting(true);
     setReportError("");
     try {
-      const file = await exportAdminReport(days, controller.signal);
+      const file = await exportAdminReport(days, controller.signal, visibleExportFilters);
       if (controller.signal.aborted) return;
       const url = URL.createObjectURL(file.blob);
       const link = document.createElement("a");
       link.href = url;
       link.download = file.filename;
+      link.hidden = true;
+      document.body.appendChild(link);
       link.click();
-      URL.revokeObjectURL(url);
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (error) {
       if (controller.signal.aborted) return;
       if (isDenied(error)) clearAdminData();
@@ -402,7 +550,7 @@ export function AdminPanel({ onClose, onAccessDenied }: { onClose?: () => void; 
         </select>
       </label>
       <button type="button" onClick={exportCsv} disabled={exporting}>
-        {exporting ? "Đang xuất…" : "Tải CSV tổng hợp"}
+        {exportButtonLabel}
       </button>
     </div>
 
@@ -438,7 +586,15 @@ export function AdminPanel({ onClose, onAccessDenied }: { onClose?: () => void; 
         </ul>
         <Pager total={accountTotal} offset={accountOffset} onChange={setAccountOffset} />
       </>}
-      {selectedAccount && <SessionsView sessions={sessions} loading={sessionLoading || (!sessionError && sessionResult?.key !== sessionKey)} error={sessionError} total={sessionTotal} offset={sessionOffset} onOffsetChange={setSessionOffset} label={`${selectedAccount.name} · ${selectedAccount.email}`} />}
+      {selectedAccount && <>
+        <section className="admin-detail" aria-label={`Phân tích tài khoản ${selectedAccount.name}`} aria-live="polite">
+          <div className="admin-detail-heading"><div><h3>Phân tích học tập của {selectedAccount.name}</h3><p>Tổng hợp trong khoảng {days} ngày đã chọn; biểu đồ, bảng và CSV chỉ dùng phiên của tài khoản này.</p></div></div>
+          {detailReportLoading && <p role="status">Đang tải phân tích tài khoản…</p>}
+          {detailReportErrorMessage && <p className="admin-error" role="alert">{detailReportErrorMessage}</p>}
+          {detailReport && <AdminOverview report={detailReport} scopeLabel={`Tài khoản: ${selectedAccount.name} · ${selectedAccount.email}`} />}
+        </section>
+        <SessionsView sessions={sessions} loading={sessionLoading || (!sessionError && sessionResult?.key !== sessionKey)} error={sessionError} total={sessionTotal} offset={sessionOffset} onOffsetChange={setSessionOffset} label={`${selectedAccount.name} · ${selectedAccount.email}`} />
+      </>}
     </section>}
 
     {tab === "groups" && <section aria-label="Tra cứu nhóm học" className="admin-panel-content">
@@ -462,7 +618,15 @@ export function AdminPanel({ onClose, onAccessDenied }: { onClose?: () => void; 
         </ul>
         <Pager total={groupTotal} offset={groupOffset} onChange={setGroupOffset} />
       </>}
-      {selectedGroup && <SessionsView sessions={sessions} loading={sessionLoading || (!sessionError && sessionResult?.key !== sessionKey)} error={sessionError} total={sessionTotal} offset={sessionOffset} onOffsetChange={setSessionOffset} label={selectedGroup.name} />}
+      {selectedGroup && <>
+        <section className="admin-detail" aria-label={`Phân tích nhóm ${selectedGroup.name}`} aria-live="polite">
+          <div className="admin-detail-heading"><div><h3>Phân tích học tập của nhóm {selectedGroup.name}</h3><p>Tổng hợp trong khoảng {days} ngày đã chọn; biểu đồ, bảng và CSV chỉ dùng phiên thuộc nhóm này.</p></div></div>
+          {detailReportLoading && <p role="status">Đang tải phân tích nhóm…</p>}
+          {detailReportErrorMessage && <p className="admin-error" role="alert">{detailReportErrorMessage}</p>}
+          {detailReport && <AdminOverview report={detailReport} scopeLabel={`Nhóm: ${selectedGroup.name}`} />}
+        </section>
+        <SessionsView sessions={sessions} loading={sessionLoading || (!sessionError && sessionResult?.key !== sessionKey)} error={sessionError} total={sessionTotal} offset={sessionOffset} onOffsetChange={setSessionOffset} label={selectedGroup.name} />
+      </>}
     </section>}
 
     <footer className="admin-panel-footer">

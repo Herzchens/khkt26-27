@@ -92,6 +92,7 @@ export type AdminSessionDto = {
 export type AdminReport = {
   days: AdminPeriod;
   timezone: "UTC";
+  analysisLimit: number;
   fromUtc: string;
   asOfUtc: string;
   matchingSessionCount: number;
@@ -261,6 +262,7 @@ export function buildAdminReport(
   return {
     days,
     timezone: "UTC",
+    analysisLimit: ADMIN_REPORT_SESSION_LIMIT,
     fromUtc: window.fromUtc,
     asOfUtc: window.asOfUtc,
     matchingSessionCount,
@@ -278,7 +280,11 @@ function csvCell(value: unknown): string {
   return `"${text.replaceAll('"', '""')}"`;
 }
 
-export function adminReportCsv(report: AdminReport): string {
+export function adminReportCsv(
+  report: AdminReport,
+  scope: "all" | "account" | "group" = "all",
+  scopeId?: string,
+): string {
   const headers = ["section", "from_utc", "as_of_utc", "timezone", "date_utc", "topic", "session_count",
     "planned_study_seconds", "actual_study_seconds", "focused_seconds", "planned_break_seconds",
     "actual_break_seconds", "distractions", "completed_sessions", "completion_percent", "graded_quiz_sessions",
@@ -290,7 +296,7 @@ export function adminReportCsv(report: AdminReport): string {
     totals.gradedQuizSessions, totals.quizCoveragePercent, totals.quizScore, totals.quizTotal, totals.quizScorePercent,
   ].map(csvCell).join(",");
   const rows = [headers.map(csvCell).join(","),
-    toRow(`summary:${report.days}d;analyzed=${report.recordsAnalyzed};matching=${report.matchingSessionCount};truncated=${report.truncated}`, "", "", report.totals),
+    toRow(`summary:${report.days}d;scope=${scope};scope_id=${scopeId ?? ""};limit=${report.analysisLimit};analyzed=${report.recordsAnalyzed};matching=${report.matchingSessionCount};truncated=${report.truncated}`, "", "", report.totals),
     ...report.daily.map((row) => toRow("daily", row.dateUtc, "", row)),
     ...report.topics.map((row) => toRow("topic", "", row.topic, row)),
   ];
@@ -302,7 +308,12 @@ function noStore(_request: FastifyRequest, reply: FastifyReply) {
 }
 
 function reportQuery(query: unknown) {
-  return z.object({ days: periodSchema.default(7) }).parse(query);
+  return z.object({
+    days: periodSchema.default(7),
+    accountId: z.uuid().optional(),
+    groupId: z.uuid().optional(),
+  }).refine((value) => !(value.accountId && value.groupId), "Choose either an account or group")
+    .parse(query);
 }
 
 function accountQuery(query: unknown) {
@@ -323,7 +334,15 @@ function sessionQuery(query: unknown) {
   return sessionFilterSchema.parse(query);
 }
 
-function readWindowSessions(db: PrismaClient, fromMs: number, asOfMs: number, limit: number) {
+type AdminSessionFilters = { accountId?: string; groupId?: string };
+
+function readWindowSessions(
+  db: PrismaClient,
+  fromMs: number,
+  asOfMs: number,
+  limit: number,
+  filters: AdminSessionFilters = {},
+) {
   return db.$queryRaw<{ session: unknown }[]>`
     SELECT entry.value AS session
     FROM adventure_state a
@@ -336,12 +355,14 @@ function readWindowSessions(db: PrismaClient, fromMs: number, asOfMs: number, li
         THEN (entry.value->>'started')::bigint >= ${fromMs}
           AND (entry.value->>'started')::bigint <= ${asOfMs}
         ELSE false END
+      AND (${filters.accountId ?? null}::text IS NULL OR entry.value->>'userId' = ${filters.accountId ?? null})
+      AND (${filters.groupId ?? null}::text IS NULL OR entry.value->>'groupId' = ${filters.groupId ?? null})
     ORDER BY CASE WHEN entry.value->>'started' ~ '^[0-9]+$'
       THEN (entry.value->>'started')::bigint ELSE 0 END DESC, entry.key DESC
     LIMIT ${limit}`;
 }
 
-function countWindowSessions(db: PrismaClient, fromMs: number, asOfMs: number) {
+function countWindowSessions(db: PrismaClient, fromMs: number, asOfMs: number, filters: AdminSessionFilters = {}) {
   return db.$queryRaw<{ total: number }[]>`
     SELECT COUNT(*)::int AS total
     FROM adventure_state a
@@ -353,14 +374,16 @@ function countWindowSessions(db: PrismaClient, fromMs: number, asOfMs: number) {
       AND CASE WHEN entry.value->>'started' ~ '^[0-9]+$'
         THEN (entry.value->>'started')::bigint >= ${fromMs}
           AND (entry.value->>'started')::bigint <= ${asOfMs}
-        ELSE false END`;
+        ELSE false END
+      AND (${filters.accountId ?? null}::text IS NULL OR entry.value->>'userId' = ${filters.accountId ?? null})
+      AND (${filters.groupId ?? null}::text IS NULL OR entry.value->>'groupId' = ${filters.groupId ?? null})`;
 }
 
-async function reportData(db: PrismaClient, days: AdminPeriod, asOf: Date) {
+async function reportData(db: PrismaClient, days: AdminPeriod, asOf: Date, filters: AdminSessionFilters = {}) {
   const window = adminReportWindow(days, asOf);
   const [rows, counts] = await Promise.all([
-    readWindowSessions(db, window.fromMs, window.asOfMs, ADMIN_REPORT_SESSION_LIMIT + 1),
-    countWindowSessions(db, window.fromMs, window.asOfMs),
+    readWindowSessions(db, window.fromMs, window.asOfMs, ADMIN_REPORT_SESSION_LIMIT + 1, filters),
+    countWindowSessions(db, window.fromMs, window.asOfMs, filters),
   ]);
   const values = rows.slice(0, ADMIN_REPORT_SESSION_LIMIT).map((row) => row.session);
   return buildAdminReport(values, days, asOf, counts[0]?.total ?? 0);
@@ -409,18 +432,19 @@ export function adminRoutes(
   }));
 
   app.get("/api/v1/admin/report", adminOptions, async (request) => {
-    const { days } = reportQuery(request.query);
-    return reportData(db, days, new Date());
+    const { days, accountId, groupId } = reportQuery(request.query);
+    return reportData(db, days, new Date(), { accountId, groupId });
   });
 
   app.get("/api/v1/admin/report/export.csv", adminOptions, async (request, reply) => {
-    const { days } = reportQuery(request.query);
-    const report = await reportData(db, days, new Date());
+    const { days, accountId, groupId } = reportQuery(request.query);
+    const scope = accountId ? "account" : groupId ? "group" : "all";
+    const report = await reportData(db, days, new Date(), { accountId, groupId });
     const stamp = report.asOfUtc.replace(/[:.]/g, "-");
     return reply
-      .header("Content-Disposition", `attachment; filename="viendu-admin-report-${days}d-UTC-${stamp}.csv"`)
+      .header("Content-Disposition", `attachment; filename="viendu-admin-report-${days}d-UTC-${scope}-${stamp}.csv"`)
       .type("text/csv; charset=utf-8")
-      .send(adminReportCsv(report));
+      .send(adminReportCsv(report, scope, accountId ?? groupId));
   });
 
   app.get("/api/v1/admin/accounts", adminOptions, async (request) => {

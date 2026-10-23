@@ -66,6 +66,7 @@ describe("admin study reporting", () => {
     expect(report).toMatchObject({
       days: 7,
       timezone: "UTC",
+      analysisLimit: 20_000,
       totals: {
         sessionCount: 3,
         plannedStudySeconds: 1500,
@@ -148,6 +149,27 @@ describe("admin study reporting", () => {
     expect(csv).toContain("2026-10-21");
     expect(csv).toContain("'=HYPERLINK");
     expect(csv).not.toContain(',"  =HYPERLINK');
+    expect(csv).not.toContain("Private study goal");
+  });
+
+  it("includes scope and analyzed-versus-matching counts in scoped exports", () => {
+    const report = buildAdminReport([{
+      ...base,
+      id: "b74dd779-a4b3-45d2-a0bb-940ba2dc4004",
+      topic: "biology",
+      started: start,
+      ended: start + 30_000,
+      target: 60,
+      seconds: 20,
+      distractions: 1,
+    }], 7, new Date(start + 50_000), 21);
+
+    const csv = adminReportCsv(report, "account", base.userId);
+
+    expect(csv).toContain("scope=account");
+    expect(csv).toContain("scope_id=" + base.userId);
+    expect(csv).toContain("limit=20000");
+    expect(csv).toContain("analyzed=1;matching=21;truncated=true");
     expect(csv).not.toContain("Private study goal");
   });
 });

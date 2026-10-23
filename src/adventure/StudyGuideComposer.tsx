@@ -20,7 +20,20 @@ export function StudyGuideComposer({ disabled, canGenerate, unavailableReason, o
   return <section className="study-guide" aria-labelledby="study-guide-title">
     <div className="study-guide__heading">
       <span aria-hidden="true">✦</span>
-      <div><h3 id="study-guide-title">Chưa có tài liệu? Tạo bản ôn tập</h3><p>Nói rõ bạn muốn học gì. AI sẽ soạn kiến thức chính, ví dụ và câu hỏi tự luyện.</p></div>
+      <div>
+        <h3 id="study-guide-title">Chưa có tài liệu? Tạo bản ôn tập</h3>
+        <p>Nói rõ bạn muốn học gì. Bản ôn tập có đúng 8 mục theo thứ tự dưới đây; phần Lý thuyết được giải thích kỹ nhất.</p>
+        <ol className="study-guide__outline" aria-label="Bố cục bản ôn tập">
+          <li>Ý chính</li>
+          <li>Lý thuyết (chi tiết nhất)</li>
+          <li>Vai trò</li>
+          <li>So sánh</li>
+          <li>Ví dụ minh họa</li>
+          <li>Nhầm lẫn thường gặp</li>
+          <li>Câu hỏi thực tế</li>
+          <li>Gợi ý đáp án theo thứ tự câu hỏi</li>
+        </ol>
+      </div>
     </div>
     <label htmlFor="study-guide-prompt">Bạn muốn ôn tập nội dung nào?</label>
     <textarea id="study-guide-prompt" rows={3} maxLength={4000} value={prompt} disabled={disabled}

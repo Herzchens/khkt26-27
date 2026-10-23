@@ -163,6 +163,31 @@ describe("admin read-only routes", () => {
     expect(filteredRawCall).toContain(groupId);
   });
 
+  it("filters aggregate reports by one account or group and rejects ambiguous scopes", async () => {
+    const headers = { authorization: "Bearer allowed-test-token" };
+    const account = await app.inject({
+      url: "/api/v1/admin/report?days=30&accountId=" + userId,
+      headers,
+    });
+    const group = await app.inject({
+      url: "/api/v1/admin/report?days=30&groupId=" + groupId,
+      headers,
+    });
+    const ambiguous = await app.inject({
+      url: "/api/v1/admin/report?days=30&accountId=" + userId + "&groupId=" + groupId,
+      headers,
+    });
+
+    expect(account.statusCode).toBe(200);
+    expect(group.statusCode).toBe(200);
+    expect(ambiguous.statusCode).toBe(400);
+    expect(account.json().totals).toMatchObject({ sessionCount: 1, gradedQuizSessions: 1 });
+    expect(group.json().totals).toMatchObject({ sessionCount: 1, gradedQuizSessions: 1 });
+    const scopedQueries = dbCalls.raw.filter(([sql]) => String(sql).includes("'sessions'") && !String(sql).includes("COUNT(*)"));
+    expect(scopedQueries.some((call) => String(call[0]).includes("entry.value->>'userId'") && call.includes(userId))).toBe(true);
+    expect(scopedQueries.some((call) => String(call[0]).includes("entry.value->>'groupId'") && call.includes(groupId))).toBe(true);
+  });
+
   it("rejects unsupported report periods and oversized pages", async () => {
     const headers = { authorization: "Bearer allowed-test-token" };
     const invalidPeriod = await app.inject({ url: "/api/v1/admin/report?days=365", headers });
@@ -185,5 +210,14 @@ describe("admin read-only routes", () => {
     expect(response.body).toContain("as_of_utc");
     expect(response.body).not.toContain("Private personal goal");
     expect(response.body).not.toContain(userId);
+
+    const scoped = await app.inject({
+      url: "/api/v1/admin/report/export.csv?days=30&groupId=" + groupId,
+      headers: { authorization: "Bearer allowed-test-token" },
+    });
+    expect(scoped.statusCode).toBe(200);
+    expect(scoped.headers["content-disposition"]).toMatch(/-group-/);
+    expect(scoped.body).toContain("scope=group");
+    expect(scoped.body).not.toContain("Private personal goal");
   });
 });

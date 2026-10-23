@@ -39,10 +39,20 @@ test("session rows from another account, group, period or page never carry over 
   }
 });
 
+test("detail reports from another account, group or period never carry over to a new selection", () => {
+  const report = { days: 7, totals: { sessionCount: 1 } };
+  const previous = { key: "7:account-a::", value: report };
+  assert.equal(panelModule.exports.adminReportForKey(previous, previous.key), report);
+  for (const key of ["7:account-b::", "7::group-b:", "30:account-a::"]) {
+    assert.equal(panelModule.exports.adminReportForKey(previous, key), null);
+  }
+});
+
 test("AdminOverview presents UTC usage, quiz coverage and topic trends on narrow layouts", () => {
   const report = {
     days: 7,
     timezone: "UTC",
+    analysisLimit: 20000,
     fromUtc: "2026-10-15T00:00:00.000Z",
     asOfUtc: "2026-10-21T12:00:00.000Z",
     matchingSessionCount: 1,
@@ -99,11 +109,18 @@ test("AdminOverview presents UTC usage, quiz coverage and topic trends on narrow
       quizScorePercent: 60,
     }],
   };
-  const html = renderToStaticMarkup(React.createElement(AdminOverview, { report }));
+  const html = renderToStaticMarkup(React.createElement(AdminOverview, { report, scopeLabel: "Tài khoản: Learner" }));
 
   assert.match(html, /UTC/);
+  assert.match(html, /Tài khoản: Learner/);
   assert.match(html, /Độ phủ quiz/);
+  assert.match(html, /giới hạn phân tích 20\.000 phiên/);
   assert.match(html, /biology/);
   assert.match(html, /30 phút/);
   assert.match(html, /admin-overview-scroll/);
+  assert.match(html, /Số phiên mỗi ngày/);
+  assert.match(html, /Hoàn tất \/ phiên/);
+  assert.match(html, /Điểm quiz theo ngày/);
+  assert.match(html, /So sánh chủ đề/);
+  assert.match(html, /phiên có quiz đã chấm/);
 });

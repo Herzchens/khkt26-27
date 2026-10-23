@@ -4,6 +4,7 @@ import type {
   AdminAccountsPage,
   AdminGroupsPage,
   AdminPeriod,
+  AdminReportFilters,
   AdminReport,
   AdminReportCsv,
   AdminSessionsPage,
@@ -18,8 +19,8 @@ function query(values: Record<string, string | number | undefined>) {
 
 export const fetchAdminAccess = () => request<AdminAccess>("/admin/access", { cache: "no-store" });
 
-export const fetchAdminReport = (days: AdminPeriod, signal?: AbortSignal) =>
-  request<AdminReport>(`/admin/report?${query({ days })}`, { signal, cache: "no-store" });
+export const fetchAdminReport = (days: AdminPeriod, signal?: AbortSignal, filters: AdminReportFilters = {}) =>
+  request<AdminReport>(`/admin/report?${query({ days, ...filters })}`, { signal, cache: "no-store" });
 
 export const fetchAdminAccounts = (
   search: string,
@@ -57,7 +58,11 @@ function csvFilename(header: string | null, days: AdminPeriod) {
   return match?.[1] ?? `viendu-admin-report-${days}d-UTC.csv`;
 }
 
-export async function exportAdminReport(days: AdminPeriod, signal?: AbortSignal): Promise<AdminReportCsv> {
+export async function exportAdminReport(
+  days: AdminPeriod,
+  signal?: AbortSignal,
+  filters: AdminReportFilters = {},
+): Promise<AdminReportCsv> {
   const controller = new AbortController();
   const cancel = () => controller.abort(signal?.reason);
   if (signal?.aborted) cancel();
@@ -68,7 +73,7 @@ export async function exportAdminReport(days: AdminPeriod, signal?: AbortSignal)
     controller.signal.throwIfAborted();
     const token = await getAccessToken();
     controller.signal.throwIfAborted();
-    const response = await fetch(`${API_URL}/admin/report/export.csv?${query({ days })}`, {
+    const response = await fetch(`${API_URL}/admin/report/export.csv?${query({ days, ...filters })}`, {
       headers: { Authorization: `Bearer ${token}` }, cache: "no-store", signal: controller.signal,
     });
     if (!response.ok) {

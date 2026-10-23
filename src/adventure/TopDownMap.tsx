@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { memo, useEffect, useId, useRef, useState } from "react";
 import { mapGeometry, stopIndices as stops } from "./mapGeometry";
 import { MapScenery, OverheadStationFootprint } from "./mapScenery";
 import { explorationProgress } from "./exploration";
@@ -16,7 +16,7 @@ const names = [
 ];
 const stationRoofColors = ["#82a179", "#d8a552", "#718f9c", "#d8875e", "#d57064"];
 
-export function TopDownMap({
+export const TopDownMap = memo(function TopDownMap({
   journey,
   carriages,
   ownId,
@@ -446,4 +446,4 @@ export function TopDownMap({
       </div>
     </section>
   );
-}
+});

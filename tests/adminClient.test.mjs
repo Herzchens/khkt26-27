@@ -6,14 +6,14 @@ import ts from "typescript";
 const originalFetch = globalThis.fetch;
 test.afterEach(() => { globalThis.fetch = originalFetch; });
 
-function client(getAccessToken) {
+function client(getAccessToken, request = async () => ({})) {
   const source = readFileSync(new URL("../src/services/admin.ts", import.meta.url), "utf8");
   const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   class ApiError extends Error {
     constructor(status, message) { super(message); this.status = status; }
   }
   const mod = { exports: {} };
-  new Function("require", "module", "exports", compiled)(() => ({ API_URL: "https://api.example.invalid", ApiError, getAccessToken }), mod, mod.exports);
+  new Function("require", "module", "exports", compiled)(() => ({ API_URL: "https://api.example.invalid", ApiError, getAccessToken, request }), mod, mod.exports);
   return mod.exports;
 }
 
@@ -59,4 +59,25 @@ test("CSV export carries authorization and honors only a safe attachment filenam
   assert.equal(await file.blob.text(), "summary,12");
   globalThis.fetch = async () => new Response("csv", { headers: { "Content-Disposition": 'attachment; filename="../../report.csv"' } });
   assert.equal((await api.exportAdminReport(7)).filename, "viendu-admin-report-7d-UTC.csv");
+});
+
+test("scoped report and CSV requests carry the selected account or group filter", async () => {
+  const groupId = "10f86082-c8de-4d40-b181-fca17806fcf3";
+  const requests = [];
+  const api = client(async () => "test-token", async (url) => { requests.push(url); return {}; });
+
+  await api.fetchAdminReport(30, undefined, { groupId });
+  globalThis.fetch = async (url) => {
+    requests.push(url);
+    return new Response("scoped aggregate");
+  };
+  await api.exportAdminReport(30, undefined, { groupId });
+
+  assert.equal(requests.length, 2);
+  for (const value of requests) {
+    const url = new URL(value, "https://api.example.invalid");
+    assert.equal(url.searchParams.get("days"), "30");
+    assert.equal(url.searchParams.get("groupId"), groupId);
+    assert.equal(url.searchParams.has("accountId"), false);
+  }
 });

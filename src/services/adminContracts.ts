@@ -1,5 +1,10 @@
 export type AdminPeriod = 7 | 30 | 90;
 
+export type AdminReportFilters = {
+  accountId?: string;
+  groupId?: string;
+};
+
 export type AdminAccess = { allowed: boolean };
 
 export type AdminMetricTotals = {
@@ -22,6 +27,7 @@ export type AdminMetricTotals = {
 export type AdminReport = {
   days: AdminPeriod;
   timezone: "UTC";
+  analysisLimit: number;
   fromUtc: string;
   asOfUtc: string;
   matchingSessionCount: number;
