@@ -1,10 +1,17 @@
 import { createElement, type ReactNode } from "react";
-import { parseStudyGuideMarkdown, type StudyGuideBlock, type StudyGuideInlineNode, type StudyGuideMathPart } from "./studyGuideMarkdown.ts";
+import { normalizeStudyGuideAiTextForDisplay, parseStudyGuideInline, parseStudyGuideMarkdown, type StudyGuideBlock, type StudyGuideInlineNode, type StudyGuideMathPart } from "./studyGuideMarkdown.ts";
 
 function renderMathPart(part: StudyGuideMathPart, key: string): ReactNode {
   if (part.type === "subscript") return createElement("sub", { key }, part.text);
   if (part.type === "superscript") return createElement("sup", { key }, part.text);
+  if (part.type === "labelled-arrow") return createElement("span", { key, className: "study-guide__notation-arrow" },
+    createElement("span", { className: "study-guide__notation-arrow-label" }, renderMathParts(part.label, `${key}-label`)),
+    createElement("span", { className: "study-guide__notation-arrow-symbol" }, part.symbol));
   return part.text;
+}
+
+function renderMathParts(parts: StudyGuideMathPart[], keyPrefix: string) {
+  return parts.map((part, index) => renderMathPart(part, `${keyPrefix}-${index}`));
 }
 
 function renderInline(nodes: StudyGuideInlineNode[], keyPrefix: string): ReactNode[] {
@@ -16,7 +23,7 @@ function renderInline(nodes: StudyGuideInlineNode[], keyPrefix: string): ReactNo
       case "strong": return createElement("strong", { key }, renderInline(node.children, key));
       case "emphasis": return createElement("em", { key }, renderInline(node.children, key));
       case "link": return createElement("a", { key, href: node.href, target: "_blank", rel: "noopener noreferrer" }, renderInline(node.children, key));
-      case "math": return createElement("span", { key, className: "study-guide__notation" }, node.parts.map((part, partIndex) => renderMathPart(part, `${key}-math-${partIndex}`)));
+      case "math": return createElement("span", { key, className: "study-guide__notation" }, renderMathParts(node.parts, `${key}-math`));
     }
   });
 }
@@ -38,13 +45,18 @@ function renderBlock(block: StudyGuideBlock, key: string): ReactNode {
         createElement("tbody", null, block.rows.map((row, rowIndex) => createElement("tr", { key: `${key}-row-${rowIndex}` }, row.map((cell, cellIndex) => createElement("td", { key: `${key}-cell-${rowIndex}-${cellIndex}` }, renderInline(cell, `${key}-cell-${rowIndex}-${cellIndex}`))))))));
     case "quote": return createElement("blockquote", { key }, renderInline(block.children, key));
     case "code": return createElement("pre", { key }, createElement("code", null, block.text));
-    case "math-block": return createElement("div", { key, className: "study-guide__notation study-guide__notation--display", role: "math" }, block.parts.map((part, index) => renderMathPart(part, `${key}-math-${index}`)));
+    case "math-block": return createElement("div", { key, className: "study-guide__notation study-guide__notation--display", role: "math" }, renderMathParts(block.parts, `${key}-math`));
     case "rule": return createElement("hr", { key });
   }
 }
 
-export function StudyGuideArticle({ title, text, label = "Bản xem trước" }: { title: string; text: string; label?: string }) {
-  const blocks = parseStudyGuideMarkdown(text);
+export function StudyGuideInlineText({ text }: { text: string }) {
+  return createElement("span", { className: "study-guide__inline-text" }, renderInline(parseStudyGuideInline(text), "study-guide-inline"));
+}
+
+export function StudyGuideArticle({ title, text, label = "Bản xem trước", aiGenerated = false }: { title: string; text: string; label?: string; aiGenerated?: boolean }) {
+  const displayText = aiGenerated ? normalizeStudyGuideAiTextForDisplay(text) : text;
+  const blocks = parseStudyGuideMarkdown(displayText);
   const titleText = title.trim().replace(/\s+/gu, " ").toLocaleLowerCase("vi");
   const firstBlock = blocks[0];
   const firstHeadingText = firstBlock?.type === "heading"
@@ -63,6 +75,12 @@ function inlineText(node: StudyGuideInlineNode): string {
     case "strong":
     case "emphasis":
     case "link": return node.children.map(inlineText).join("");
-    case "math": return node.parts.map(part => part.text).join("");
+    case "math": return node.parts.map(part => part.type === "labelled-arrow"
+      ? `${part.label.map(mathPartText).join("")}${part.symbol}`
+      : part.text).join("");
   }
+}
+
+function mathPartText(part: StudyGuideMathPart): string {
+  return part.type === "labelled-arrow" ? `${part.label.map(mathPartText).join("")}${part.symbol}` : part.text;
 }

@@ -1,6 +1,9 @@
+import { normalizeStudyGuideAiText } from "../../backend/src/studyGuideText.ts";
+
 export type StudyGuideMathPart =
   | { type: "text"; text: string }
-  | { type: "subscript" | "superscript"; text: string };
+  | { type: "subscript" | "superscript"; text: string }
+  | { type: "labelled-arrow"; symbol: string; label: StudyGuideMathPart[] };
 
 export type StudyGuideInlineNode =
   | { type: "text"; text: string }
@@ -41,14 +44,23 @@ function formatFractionTerm(term: string) {
   return Array.from(value).length > 1 ? `(${value})` : value;
 }
 
+/** Normalizes legacy AI-generated text for display without changing its saved source. */
+export const normalizeStudyGuideAiTextForDisplay = normalizeStudyGuideAiText;
+
 function mathParts(source: string): StudyGuideMathPart[] {
   let value = source.trim();
   let chemistry = false;
+  const labelledArrows: { symbol: string; label: string }[] = [];
   const chemicalNotation = value.match(/^\\ce\s*\{([\s\S]*)\}$/u);
   if (chemicalNotation) {
     chemistry = true;
     value = chemicalNotation[1];
   }
+
+  value = value.replace(/(?<!\\)\\xrightarrow\s*\{([^{}]*)\}/gu, (_match, label: string) => {
+    const index = labelledArrows.push({ symbol: "→", label }) - 1;
+    return `\uE000${index}\uE001`;
+  });
 
   value = value
     .replace(/\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/gu, (_match, numerator: string, denominator: string) => `${formatFractionTerm(numerator)}⁄${formatFractionTerm(denominator)}`)
@@ -62,7 +74,7 @@ function mathParts(source: string): StudyGuideMathPart[] {
       "\\neq": "≠", "\\ne": "≠", "\\le": "≤", "\\leq": "≤",
       "\\ge": "≥", "\\geq": "≥", "\\approx": "≈", "\\equiv": "≡",
       "\\infty": "∞", "\\pi": "π", "\\alpha": "α", "\\beta": "β",
-      "\\gamma": "γ", "\\Delta": "Δ", "\\delta": "δ", "\\lambda": "λ",
+      "\\gamma": "γ", "\\Delta": "Δ", "\\delta": "δ", "\\lambda": "λ", "\\nu": "ν",
       "\\mu": "μ", "\\theta": "θ", "\\omega": "ω",
     }[macro] ?? macro))
     .replace(/\\ce\s*\{([^{}]*)\}/gu, (_match, formula: string) => formula.replace(/([A-Z][a-z]?|\))(\d+)/gu, "$1_{$2}"));
@@ -77,6 +89,17 @@ function mathParts(source: string): StudyGuideMathPart[] {
   };
   for (let index = 0; index < value.length; index += 1) {
     const marker = value[index];
+    if (marker === "\uE000") {
+      const closing = value.indexOf("\uE001", index + 1);
+      const arrowIndex = Number(value.slice(index + 1, closing));
+      const arrow = labelledArrows[arrowIndex];
+      if (closing > index && arrow) {
+        flush();
+        parts.push({ type: "labelled-arrow", symbol: arrow.symbol, label: mathParts(arrow.label) });
+        index = closing;
+        continue;
+      }
+    }
     if ((marker === "_" || marker === "^") && index + 1 < value.length) {
       flush();
       let notation = "";
@@ -183,6 +206,10 @@ function parseInline(source: string, depth = 0): StudyGuideInlineNode[] {
     index += 1;
   }
   return nodes;
+}
+
+export function parseStudyGuideInline(source: string) {
+  return parseInline(source);
 }
 
 function isTableDelimiter(line: string) {

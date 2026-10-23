@@ -1210,11 +1210,13 @@ body,
 .quiz-count-label {
   display: inline-flex;
   align-items: center;
+  white-space: nowrap;
   gap: 12px;
   margin: 8px 14px 8px 0;
   font-size: 13px;
 }
 .adventure .quiz-count-label input {
+  flex-shrink: 0;
   width: 90px;
   border: 1px solid var(--border);
   border-radius: 9px;

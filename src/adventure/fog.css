@@ -57,6 +57,11 @@
   animation: map-fog-drift-quick 63s ease-in-out infinite alternate;
 }
 
+/* Keep the map's last painted fog frame while the adjacent trip form is in use. */
+.dashboard-grid:focus-within .map-fog-flow.is-active {
+  animation-play-state: paused;
+}
+
 @keyframes map-fog-drift-slow {
   to { transform: translate(30px, -18px) scale(1.015); }
 }

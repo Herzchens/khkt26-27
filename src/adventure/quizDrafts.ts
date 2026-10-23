@@ -109,6 +109,12 @@ export class QuizRequestGuard {
 
 export const emptyQuizDraft = (): QuizDraft => ({ count: 3, questions: [], answers: {} });
 
+/** Adopt a persisted/prefetched draft as the panel's controlled state. */
+export function quizPanelDraftState(value: unknown): { draft: QuizDraft; countInput: string } {
+  const draft = isValidQuizDraft(value) ? structuredClone(value) : emptyQuizDraft();
+  return { draft, countInput: String(draft.requestedCount ?? draft.count) };
+}
+
 export function updateQuizDrafts(
   drafts: Readonly<Record<string, QuizDraft>> | undefined,
   sessionId: string,

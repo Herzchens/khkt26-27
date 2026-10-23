@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { Session } from "../../backend/src/adventure/domain";
 import { knowledgeGaps } from "./learning";
+import { StudyGuideInlineText } from "./StudyGuideRenderer";
 import {
-  emptyQuizDraft,
   isQuizCount,
   isValidQuizDraft,
   QuizRequestGuard,
+  quizPanelDraftState,
   type QuizDraft,
   type QuizQuestion,
 } from "./quizDrafts";
@@ -17,6 +18,8 @@ type Props = {
   ownerId: string;
   session: Session;
   draft?: QuizDraft;
+  prefetchStatus?: "pending" | "ready" | "failed";
+  prefetchError?: string;
   canUseAI: boolean;
   needsLogin: boolean;
   onGenerate: (count: number) => Promise<QuizQuestion[]>;
@@ -30,6 +33,8 @@ export function QuizPanel({
   ownerId,
   session,
   draft: initialDraft,
+  prefetchStatus,
+  prefetchError,
   canUseAI,
   needsLogin,
   onGenerate,
@@ -38,21 +43,40 @@ export function QuizPanel({
   onLogin,
   onStartReview,
 }: Props) {
-  const firstDraft = isValidQuizDraft(initialDraft) ? initialDraft : emptyQuizDraft();
-  const [draft, setDraft] = useState<QuizDraft>(() => structuredClone(firstDraft));
-  const [countInput, setCountInput] = useState(() => String(firstDraft.requestedCount ?? firstDraft.count));
+  const firstPanelState = quizPanelDraftState(initialDraft);
+  const [draft, setDraft] = useState<QuizDraft>(() => firstPanelState.draft);
+  const [countInput, setCountInput] = useState(() => firstPanelState.countInput);
   const [generating, setGenerating] = useState(false);
   const [grading, setGrading] = useState(false);
   const [error, setError] = useState("");
   const [gradedQuiz, setGradedQuiz] = useState<Assessment | null>(null);
   const requests = useRef(new QuizRequestGuard());
+  const incomingDraft = useRef(initialDraft);
+  const lastSavedDraft = useRef<QuizDraft | null>(null);
   const assessment = gradedQuiz ?? session.quiz;
   const questions = draft.questions;
 
   useEffect(() => () => requests.current.invalidate(), [ownerId, session.id]);
 
+  useEffect(() => {
+    if (initialDraft === lastSavedDraft.current) {
+      lastSavedDraft.current = null;
+      incomingDraft.current = initialDraft;
+      return;
+    }
+    if (incomingDraft.current === initialDraft) return;
+    incomingDraft.current = initialDraft;
+    requests.current.invalidate();
+    const next = quizPanelDraftState(initialDraft);
+    setDraft(next.draft);
+    setCountInput(next.countInput);
+    setGenerating(false);
+    setError("");
+  }, [initialDraft]);
+
   function saveDraft(next: QuizDraft) {
     setDraft(next);
+    lastSavedDraft.current = next;
     onSaveDraft(next);
   }
 
@@ -127,9 +151,9 @@ export function QuizPanel({
                   {gaps.length ? <ul>
                     {gaps.map((gap) => (
                       <li key={gap.knowledgePoint.toLocaleLowerCase()}>
-                        <strong>{gap.knowledgePoint}</strong> — {gap.wrong}/{gap.total} câu sai
+                        <strong><StudyGuideInlineText text={gap.knowledgePoint} /></strong> — {gap.wrong}/{gap.total} câu sai
                         {gap.feedback.map((item) => item.explanation && (
-                          <p key={item.questionId}>{item.explanation}</p>
+                          <p key={item.questionId}><StudyGuideInlineText text={item.explanation} /></p>
                         ))}
                       </li>
                     ))}
@@ -143,12 +167,12 @@ export function QuizPanel({
                 <ol className="quiz-feedback-list">
                   {assessment.feedback.map((item) => (
                     <li key={item.questionId}>
-                      <strong>{item.question}</strong>
+                      <strong><StudyGuideInlineText text={item.question} /></strong>
                       <p className={item.correct ? "quiz-answer-correct" : "quiz-answer-wrong"}>
-                        Bạn chọn: {item.options[item.selected] ?? "Không rõ"}
-                        {item.correct ? " · Đúng" : ` · Đáp án: ${item.options[item.correctIndex] ?? "Không rõ"}`}
+                        Bạn chọn: <StudyGuideInlineText text={item.options[item.selected] ?? "Không rõ"} />
+                        {item.correct ? " · Đúng" : <> · Đáp án: <StudyGuideInlineText text={item.options[item.correctIndex] ?? "Không rõ"} /></>}
                       </p>
-                      {item.explanation && <p>{item.explanation}</p>}
+                      {item.explanation && <p><StudyGuideInlineText text={item.explanation} /></p>}
                     </li>
                   ))}
                 </ol>
@@ -177,15 +201,20 @@ export function QuizPanel({
                     const value = event.target.value;
                     setCountInput(value);
                     const count = Number(value);
-                    if (isQuizCount(count)) saveDraft(draft.questions.length
-                      ? { ...draft, requestedCount: count }
-                      : { ...draft, count, requestedCount: count });
+                    if (isQuizCount(count)) {
+                      const selected = draft.requestedCount ?? draft.count;
+                      saveDraft(draft.questions.length && selected === count
+                        ? { ...draft, requestedCount: count }
+                        : { count, requestedCount: count, questions: [], answers: {} });
+                    }
                   }}
                 />
               </label>
-              <button className="primary" disabled={generating || grading || !isQuizCount(Number(countInput))} onClick={() => void generate()}>
-                {generating ? "Đang tạo câu hỏi…" : "Tạo câu hỏi bằng AI"}
+              <button className="primary" disabled={generating || grading || prefetchStatus === "pending" || !isQuizCount(Number(countInput))} onClick={() => void generate()}>
+                {generating || prefetchStatus === "pending" ? "Đang chuẩn bị câu hỏi…" : questions.length ? "Tạo lại câu hỏi bằng AI" : "Tạo câu hỏi bằng AI"}
               </button>
+              {prefetchStatus === "pending" && <p className="quiz-prefetch-status" role="status">Viễn Du đang chuẩn bị câu hỏi trong lúc bạn tập trung.</p>}
+              {prefetchStatus === "failed" && <p className="quiz-prefetch-status" role="status">{prefetchError || "Chưa chuẩn bị sẵn được. Bạn có thể thử tạo câu hỏi ngay bây giờ."}</p>}
               {questions.length > 0 && <p className="quiz-replace-hint">Tạo lại trước khi chấm sẽ thay câu hỏi và câu trả lời hiện tại.</p>}
             </>
           ) : (
@@ -198,7 +227,7 @@ export function QuizPanel({
             <div className="quiz">
               {questions.map((question, index) => (
                 <fieldset key={question.id} disabled={grading}>
-                  <legend>{index + 1}. {question.question}</legend>
+                  <legend>{index + 1}. <StudyGuideInlineText text={question.question} /></legend>
                   {question.options.map((option, optionIndex) => (
                     <label className="answer" key={`${question.id}:${optionIndex}`}>
                       <input
@@ -207,7 +236,7 @@ export function QuizPanel({
                         checked={draft.answers[question.id] === optionIndex}
                         onChange={() => choose(question.id, optionIndex)}
                       />
-                      {option}
+                      <StudyGuideInlineText text={option} />
                     </label>
                   ))}
                 </fieldset>

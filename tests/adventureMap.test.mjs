@@ -127,6 +127,8 @@ test("two slow fog transforms animate only while visible and are disabled by red
   assert.match(stylesheet, /\.map-fog-flow--slow\.is-active\s*\{\s*animation: map-fog-drift-slow/u);
   assert.match(stylesheet, /\.map-fog-flow--quick\.is-active\s*\{\s*animation: map-fog-drift-quick/u);
   assert.match(stylesheet, /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.map-fog-flow\.is-active\s*\{\s*animation:\s*none;/u);
+  assert.match(stylesheet, /\.dashboard-grid:focus-within\s+\.map-fog-flow\.is-active\s*\{\s*animation-play-state:\s*paused;/u,
+    "the heavy SVG fog animation pauses while a home trip field has focus");
 });
 
 test("fog apertures are deterministic and reveal only inside each node's approach window", () => {

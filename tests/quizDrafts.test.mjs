@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { QuizRequestGuard, isQuizCount, isValidQuizDraft, isValidQuizDraftMap, updateQuizDrafts } from "../src/adventure/quizDrafts.ts";
+import { QuizRequestGuard, isQuizCount, isValidQuizDraft, isValidQuizDraftMap, quizPanelDraftState, updateQuizDrafts } from "../src/adventure/quizDrafts.ts";
 
 const question = {
   id: "123e4567-e89b-42d3-a456-426614174000",
@@ -21,6 +21,30 @@ test("valid quiz drafts survive the same JSON round trip used by local storage",
   assert.equal(isValidQuizDraft(JSON.parse(JSON.stringify(draft))), true);
   assert.equal(isValidQuizDraft({ count: 3, questions: [], answers: {} }), true);
   assert.equal(isValidQuizDraftMap(JSON.parse(JSON.stringify({ sessionA: draft }))), true);
+});
+
+test("quiz panel adopts the current saved draft and selected count without retaining edited-source questions", () => {
+  const prefetched = {
+    count: 3,
+    requestedCount: 5,
+    questions: [question, { ...question, id: "123e4567-e89b-42d3-a456-426614174001" }, { ...question, id: "123e4567-e89b-42d3-a456-426614174002" }],
+    answers: {},
+  };
+  const adopted = quizPanelDraftState(prefetched);
+  assert.equal(adopted.countInput, "5");
+  assert.deepEqual(adopted.draft, prefetched);
+  assert.notStrictEqual(adopted.draft, prefetched);
+  assert.notStrictEqual(adopted.draft.questions, prefetched.questions);
+
+  const sourceEdited = quizPanelDraftState({ count: 5, requestedCount: 5, questions: [], answers: {} });
+  assert.equal(sourceEdited.countInput, "5");
+  assert.deepEqual(sourceEdited.draft.questions, []);
+  assert.deepEqual(sourceEdited.draft.answers, {});
+
+  assert.deepEqual(quizPanelDraftState(undefined), {
+    draft: { count: 3, questions: [], answers: {} },
+    countInput: "3",
+  });
 });
 
 test("draft updates preserve other sessions and keep the previous saved value immutable", () => {

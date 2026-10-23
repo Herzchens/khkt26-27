@@ -72,6 +72,27 @@ describe("study guide response contracts", () => {
     }).success).toBe(true);
   });
 
+  it("normalizes escaped newlines in AI Markdown while preserving TeX and code literals", () => {
+    const backslash = String.fromCharCode(92);
+    const escapedBreak = `${backslash}n`;
+    const comparison = [
+      `${"Đối chiếu các chất theo tiêu chí và vai trò trong phản ứng. ".repeat(3)}`, "",
+      "| Chất | Công thức |", "| --- | --- |", "| Bạc nitrat | $AgNO_3$ |",
+    ].join(escapedBreak);
+    const theory = [
+      `${"Xem xét từng bước để phân biệt chất tham gia và sản phẩm trong phản ứng hóa học. ".repeat(8)}`, "", "```js",
+      `const marker = "line${backslash}nnext";`, "```",
+      `Ký hiệu tần số là $${backslash}nu$.`,
+    ].join(escapedBreak);
+
+    const parsed = studyGuideProviderResponseSchema.parse({ ...providerResponse, comparison, theory });
+
+    expect(parsed.comparison).toBe(comparison.replaceAll(escapedBreak, "\n"));
+    expect(parsed.theory).toContain(`$${backslash}nu$`);
+    expect(parsed.theory).toContain(`const marker = "line${backslash}nnext";`);
+    expect(parsed.theory).toContain("```js\n");
+  });
+
   it("rejects missing sections and theory that is too brief to support a detailed guide", () => {
     const missingSection = { ...providerResponse } as Record<string, unknown>;
     delete missingSection.comparison;
@@ -142,6 +163,8 @@ describe("study guide response contracts", () => {
   });
 
   it("keeps the external editable title and Markdown body bounds without requiring a legacy note heading", () => {
+    const backslash = String.fromCharCode(92);
+    const literalEscapes = `User text ${backslash}n${backslash}n stays unchanged.`.repeat(4);
     expect(studyGuideResponseSchema.safeParse({
       title: "Biology review",
       text: `## 1. Ý chính\n${"Quang hợp chuyển năng lượng ánh sáng thành năng lượng hóa học. ".repeat(4)}`,
@@ -154,5 +177,6 @@ describe("study guide response contracts", () => {
       title: "Biology review",
       text: "x".repeat(20_001),
     }).success).toBe(false);
+    expect(studyGuideResponseSchema.parse({ title: "Biology review", text: literalEscapes }).text).toBe(literalEscapes);
   });
 });

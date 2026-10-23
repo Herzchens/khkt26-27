@@ -21,6 +21,7 @@
 .departure-settings .primary { width: 100%; }
 .departure-settings .ticket-editor-fields { gap: 14px; }
 .departure-settings .duration-presets { flex-wrap: wrap; }
+.departure-settings .departure-quiz-hint { display: block; margin: -4px 0 12px; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .material-formats summary { color: #52695a; cursor: pointer; font-size: 12px; }
 .material-formats p { margin: 10px 0 0; }
 .quick-topic-field { display: grid; gap: 8px; }

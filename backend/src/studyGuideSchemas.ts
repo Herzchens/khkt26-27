@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizeStudyGuideAiText } from "./studyGuideText.js";
 
 export const STUDY_GUIDE_BODY_LIMIT_BYTES = 20 * 1024;
 export const STUDY_GUIDE_TEXT_LIMIT_CHARACTERS = 20_000;
@@ -71,7 +72,9 @@ function normalizeMarkdownHeadingLevels(value: string) {
 
 function markdownBody(minimumCharacters: number, maximumCharacters: number) {
   return z.string().trim()
+    .transform(normalizeStudyGuideAiText)
     .transform(normalizeMarkdownHeadingLevels)
+    .transform(value => value.trim())
     .pipe(z.string().min(minimumCharacters).max(maximumCharacters));
 }
 
@@ -94,7 +97,9 @@ export const studyGuideProviderResponseSchema = z.object({
   commonMisconceptions: sectionBody(STUDY_GUIDE_FIELD_LIMITS.commonMisconceptions),
   practice,
   verificationNote: z.string().trim()
+    .transform(normalizeStudyGuideAiText)
     .transform(normalizeMarkdownHeadingLevels)
+    .transform(value => value.trim())
     .pipe(z.string().max(STUDY_GUIDE_FIELD_LIMITS.verificationNote)),
 }).strict();
 

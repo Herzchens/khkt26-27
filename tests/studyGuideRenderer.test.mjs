@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { StudyGuideArticle } from '../src/adventure/StudyGuideRenderer.ts';
+import { StudyGuideArticle, StudyGuideInlineText } from '../src/adventure/StudyGuideRenderer.ts';
 import { createStudyGuideReviewState, reduceStudyGuideReview } from '../src/adventure/studyGuideReview.ts';
 
 function renderArticle(title, text) {
@@ -40,6 +40,45 @@ test('groups multi-term fractions and preserves grouping in unsupported math com
   assert.match(html, /\(a\+b\)⁄\(c\+d\)/);
   assert.match(html, /\\unknown\{x\+y\}/);
   assert.match(renderArticle('Phân số', '$\\frac{a}{2x}$'), /a⁄\(2x\)/);
+});
+
+test('renders common chemistry arrows and quiz inline notation through the safe inline renderer', () => {
+  const arrow = renderArticle('Hóa học', String.raw`$2H_2 + O_2 \xrightarrow{t^o} 2H_2O$`);
+  const inline = renderToStaticMarkup(createElement(StudyGuideInlineText, {
+    text: String.raw`$AgNO_3$ / $Cu(OH)_2$ <img src=x onerror=alert(1)>`,
+  }));
+
+  assert.match(arrow, /2H<sub>2<\/sub> \+ O<sub>2<\/sub>/);
+  assert.match(arrow, /→/);
+  assert.match(arrow, /study-guide__notation-arrow-label">t<sup>o<\/sup>/);
+  assert.doesNotMatch(arrow, /\\xrightarrow/);
+  assert.match(inline, /<span class="study-guide__notation">AgNO<sub>3<\/sub><\/span> \/ <span class="study-guide__notation">Cu\(OH\)<sub>2<\/sub><\/span>/);
+  assert.match(inline, /&lt;img src=x onerror=alert\(1\)&gt;/);
+  assert.doesNotMatch(inline, /<img\b/);
+});
+
+test('normalizes escaped line breaks only for explicitly identified AI guide display', () => {
+  const backslash = String.fromCharCode(92);
+  const escapedBreak = `${backslash}n`;
+  const source = [
+    '## So sánh', '', '| Chất | Công thức |', '| --- | --- |', '| Bạc nitrat | $AgNO_3$ |', '',
+    `Ký hiệu tần số $${backslash}nu$.`, '', '```txt',
+    `const literal = "line${backslash}nnext";`, '```',
+  ].join(escapedBreak);
+  const renderedAi = renderToStaticMarkup(createElement(StudyGuideArticle, {
+    title: 'Hóa học', text: source, aiGenerated: true,
+  }));
+  const renderedUser = renderToStaticMarkup(createElement(StudyGuideArticle, {
+    title: 'Hóa học', text: source,
+  }));
+
+  assert.match(renderedAi, /<table>/);
+  assert.match(renderedAi, /<th scope="col">Chất<\/th>/);
+  assert.match(renderedAi, /<span class="study-guide__notation">ν<\/span>/);
+  assert.match(renderedAi, /<pre><code>const literal = &quot;line\\nnext&quot;;<\/code><\/pre>/);
+  assert.doesNotMatch(renderedAi, /\\n\\n\|/);
+  assert.doesNotMatch(renderedUser, /<table>/);
+  assert.match(renderedUser, /\\n\\n\|/);
 });
 
 test('treats raw HTML as text and omits unsafe Markdown links while keeping HTTPS links usable', () => {

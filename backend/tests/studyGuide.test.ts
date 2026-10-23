@@ -121,6 +121,23 @@ describe("prompt-generated study guide", () => {
     expect(result.text.endsWith("**Ghi chú giả định và kiểm chứng:** Đối chiếu thuật ngữ với giáo trình của lớp.")).toBe(true);
   });
 
+  it("returns parseable Markdown when provider text uses escaped newlines", async () => {
+    config.GEMINI_API_KEY = "test-only-private-key";
+    const backslash = String.fromCharCode(92);
+    const escapedBreak = `${backslash}n`;
+    const comparison = [
+      `${"So sánh các chất theo vai trò, điều kiện và kết quả của phản ứng. ".repeat(3)}`,
+      "", "| Chất | Vai trò |", "| --- | --- |", "| Oxy | Sản phẩm |",
+    ].join(escapedBreak);
+    generateContent.mockResolvedValue({ text: JSON.stringify({ ...providerDraft, comparison }) });
+
+    const result = await generateStudyGuide(input);
+
+    expect(result.text).toContain("| Chất | Vai trò |\n| --- | --- |\n| Oxy | Sản phẩm |");
+    expect(result.text).not.toContain(`${backslash}n|`);
+    expect(result.text.length).toBeLessThanOrEqual(20_000);
+  });
+
   it("rejects an empty trailing practice pair instead of guessing question-answer alignment", async () => {
     config.GEMINI_API_KEY = "test-only-private-key";
     generateContent.mockResolvedValue({ text: JSON.stringify({

@@ -7,6 +7,7 @@ type MaterialSourceReaderProps = {
   onChange?: (text: string) => void;
   disabled?: boolean;
   maxLength?: number;
+  aiGenerated?: boolean;
   textareaLabel?: string;
   placeholder?: string;
   emptyMessage?: string;
@@ -19,6 +20,7 @@ export function MaterialSourceReader({
   onChange,
   disabled = false,
   maxLength = 50000,
+  aiGenerated = false,
   textareaLabel = "Bản chép tài liệu",
   placeholder,
   emptyMessage = "Chưa đọc được nội dung nguồn.",
@@ -52,5 +54,5 @@ export function MaterialSourceReader({
             onChange: (event: { currentTarget: { value: string } }) => onChange(event.currentTarget.value),
           })),
         createElement("p", { className: "material-hint" }, "Đây là bản chép gốc. Mọi chỉnh sửa cần được xác nhận lại trước khi dùng làm câu hỏi."))
-      : createElement(StudyGuideArticle, { title, text: text || emptyMessage, label: "Nội dung tài liệu" }));
+      : createElement(StudyGuideArticle, { title, text: text || emptyMessage, label: "Nội dung tài liệu", aiGenerated }));
 }

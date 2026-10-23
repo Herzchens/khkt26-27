@@ -45,3 +45,21 @@ test('renders read-only text with safe paragraph and chemistry notation', () => 
   assert.match(html, /H<sub>2<\/sub>O/);
   assert.doesNotMatch(html, /material-reader__toolbar/);
 });
+
+test('formats old AI guides for display without changing their saved source or editor value', () => {
+  const backslash = String.fromCharCode(92);
+  const escapedBreak = `${backslash}n`;
+  const original = [
+    '# Bản cũ', '', '| Chất | Công thức |', '| --- | --- |', '| Bạc nitrat | $AgNO_3$ |',
+  ].join(escapedBreak);
+  const source = createMaterialSource('source-old-ai', {
+    name: 'Bản cũ.txt', text: original, source: 'ai-generated', quality: 'needs-review',
+  });
+  const html = renderToStaticMarkup(createElement(MaterialSourceReader, {
+    title: source.name, text: source.text, aiGenerated: source.source === 'ai-generated', onChange: () => {},
+  }));
+
+  assert.match(html, /<table>/);
+  assert.match(html, /AgNO<sub>3<\/sub>/);
+  assert.equal(source.text, original);
+});

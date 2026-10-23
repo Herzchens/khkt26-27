@@ -23,9 +23,11 @@ Each departure is counted once as a distraction; returning resumes immediately. 
 
 Admin reporting is disabled until the backend `ADMIN_USER_IDS` environment variable contains one or more comma-separated account UUIDs from the `users.id` column. Leave it empty to deny admin access. Configure it only in the backend environment, then restart the API. The server validates the signed-in account on every admin request; a client-supplied role does not grant access. Admin tools are read-only and report study timing, progress, group summaries, and graded quiz totals. They do not return personal goals, documents, or quiz feedback. Reports use UTC and analyze up to 20,000 recent sessions per selected window; the panel marks capped results.
 
+Open your profile using your name/avatar, then **Khu vực quản trị**. Confirmed administrators see **Mở khu vực quản trị**; other accounts can copy their account ID and recheck access after the server configuration changes. The profile also shows owner-scoped study totals, recent trips, personal journey progress, and sync status.
+
 ## Scanned documents and exploration
 
-Import scanned PDFs or PNG/JPG/WebP/BMP images to recognize Vietnamese and English text with local OCR. Selectable PDF text is preserved; pages with little usable text are recognized individually. OCR workers, language data, and WebAssembly are bundled with the app and served from the same origin. Files are processed on the device; only the extracted study text is sent when the learner explicitly chooses AI questions. Progress and page indicators are shown during import. Cancelling, leaving the ticket, or switching accounts discards the unfinished import.
+Import scanned PDFs or PNG/JPG/WebP/BMP images to recognize Vietnamese and English text with local OCR. Selectable PDF text is preserved; pages with little usable text are recognized individually. OCR workers, language data, and WebAssembly are bundled with the app and served from the same origin. Local OCR processes files on the device. For signed-in trips, reviewed source text is sent to AI during focus to prepare questions; manual generation uses the same source. Progress and page indicators are shown during import. Cancelling, leaving the ticket, or switching accounts discards the unfinished import.
 
 Google AI Studio keys, including newer `AQ` authorization keys, use the existing Gemini backend integration. Set `GEMINI_API_KEY` in the ignored `backend/.env` for local development and restart the API. For hosting, set the secret in the backend service environment. Local OCR does not need this key; optional AI reading sends the selected file to Gemini only after the learner chooses **Đọc bằng AI**. Never add the key to a `VITE_*` variable.
 
@@ -41,7 +43,7 @@ Before starting, choose up to 10 **Trạm dừng chân**, each lasting 1–30 mi
 
 ## AI questions and learning journal
 
-Choose **Tạo câu hỏi bằng AI** after a saved trip and select 1–30 questions. Questions use the trip topic, goal, and any locally extracted study text. There is no prebuilt question bank in the learning flow. Draft questions and answers stay in owner-scoped browser storage. The first submitted score and detailed answer feedback are saved by the server; reopening the journal restores the assessment.
+Before departure, choose 1–30 questions (default 3). Signed-in trips prepare them during focus using the trip topic, goal, and canonical reviewed source. The summary reuses ready or in-flight questions; ending early may still require waiting for the current request. Source or count changes invalidate old questions, while generation failures can be retried manually. There is no prebuilt question bank in the learning flow. Draft questions and answers stay in owner-scoped browser storage. Grading waits for the finished session to synchronize; the first submitted score and detailed answer feedback are saved by the server. Reopening the journal restores the assessment.
 
 Wrong answers identify **Kiến thức cần ôn** from the concepts tested in that question set. **Ôn lại trong một phiên mới** opens a new ticket with those concepts and the previous material; the learner chooses when to start. A perfect score only describes this set of questions. Older score-only assessments cannot reconstruct knowledge gaps.
 
